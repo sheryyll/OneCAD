@@ -1,9 +1,18 @@
 # OneCAD Tests
-# Using CTest for now, can add GTest later
-
 enable_testing()
 
-# Placeholder for future tests
-# add_executable(test_sketch test_sketch.cpp)
-# target_link_libraries(test_sketch onecad_core)
-# add_test(NAME SketchTests COMMAND test_sketch)
+# OCAF Prototype
+add_executable(proto_tnaming prototypes/proto_tnaming.cpp)
+target_link_libraries(proto_tnaming 
+    PRIVATE 
+    ${OpenCASCADE_LIBRARIES}
+)
+target_include_directories(proto_tnaming PRIVATE ${OpenCASCADE_INCLUDE_DIR})
+
+# Custom Map Prototype
+add_executable(proto_custom_map prototypes/proto_custom_map.cpp)
+target_link_libraries(proto_custom_map 
+    PRIVATE 
+    ${OpenCASCADE_LIBRARIES}
+)
+target_include_directories(proto_custom_map PRIVATE ${OpenCASCADE_INCLUDE_DIR} ${CMAKE_SOURCE_DIR}/src)

@@ -1240,12 +1240,29 @@ flowchart TD
 - Which original faces contributed to each new face
 - Which operation created/modified each element
 - History chain for parametric regeneration
+- Lightweight geometric descriptors for each element (bbox center/diagonal, area/length/volume) to re-identify when history is ambiguous
 
 **Why Critical:**
 - Prevents "topological naming problem"
 - Enables reliable parametric updates
 - Sketches on faces survive body modifications
 - Very difficult to retrofit — must implement from start
+
+**ElementMap Data Model:**
+- ElementId: hierarchical `{parent-uuid}/{entity-uuid}` (matches Entity Registry)
+- ElementKind: Body/Face/Edge/Vertex
+- Fields per entry: `TopoDS_Shape`, descriptor, sources (list of contributing ElementIds), creating operation ID
+- Reverse lookup: `TopoDS_Shape -> ElementId` using `TopTools_ShapeMapHasher`
+
+**Update Algorithm (per modeling op):**
+- Query OCCT history (`IsDeleted`, `Modified`, `Generated` or `TopTools_History`):
+  - `Deleted`: remove entry
+  - `Modified`: pick best match (history list prioritized; descriptor similarity fallback), update descriptor/opId
+  - `Generated`: create child ElementIds under the source ElementId, infer kind from shape type
+- Persist mappings in document/scene for regeneration, selection, constraints
+
+**Selection & Constraints:**
+- Persistent selections should use TNaming selector or ElementMap resolution backed by descriptors to survive recompute (e.g., sketch-on-face, fillet targets).
 
 ### 13.4 Entity Deletion Cascade
 
