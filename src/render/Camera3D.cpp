@@ -10,7 +10,7 @@ Camera3D::Camera3D() {
     // Initialize ortho scale based on initial perspective state
     // This ensures first transition to ortho preserves current view scale
     float halfFovRad = qDegreesToRadians(m_fov * 0.5f);
-    m_orthoScale = distance() * qTan(halfFovRad);
+    m_orthoScale = 2.0f * distance() * qTan(halfFovRad);
 }
 
 void Camera3D::setPosition(const QVector3D& pos) {
@@ -65,6 +65,9 @@ void Camera3D::orbit(float deltaYaw, float deltaPitch) {
 void Camera3D::pan(float deltaX, float deltaY) {
     // Scale by distance for consistent feel
     float scale = distance() * 0.001f;
+    if (m_projectionType == ProjectionType::Orthographic) {
+        scale = m_orthoScale * 0.001f;
+    }
     
     QVector3D rightVec = right();
     QVector3D upVec = m_up;
@@ -76,12 +79,22 @@ void Camera3D::pan(float deltaX, float deltaY) {
 }
 
 void Camera3D::zoom(float delta) {
+    if (m_projectionType == ProjectionType::Orthographic) {
+        float newScale = m_orthoScale - delta * m_orthoScale * 0.001f;
+        float minScale = 2.0f * MIN_DISTANCE *
+            qTan(qDegreesToRadians(MIN_PERSPECTIVE_FOV * 0.5f));
+        float maxScale = 2.0f * MAX_DISTANCE *
+            qTan(qDegreesToRadians(MAX_PERSPECTIVE_FOV * 0.5f));
+        m_orthoScale = qBound(minScale, newScale, maxScale);
+        return;
+    }
+
     float dist = distance();
     float newDist = dist - delta * dist * 0.001f;
-    
+
     // Clamp distance
     newDist = qBound(MIN_DISTANCE, newDist, MAX_DISTANCE);
-    
+
     // Move camera along view direction
     QVector3D dir = forward();
     m_position = m_target - dir * newDist;
@@ -170,10 +183,10 @@ void Camera3D::setCameraAngle(float degrees) {
         if (targetProjection == ProjectionType::Perspective) {
             // Ortho → Perspective transition
             // Compute new distance to preserve scale at matching plane
-            // Formula: D_new = S_ortho / tan(θ/2)
+            // Formula: D_new = S_ortho / (2 * tan(θ/2))
             float targetFov = qMax(degrees, MIN_PERSPECTIVE_FOV);
             float halfFovRad = qDegreesToRadians(targetFov * 0.5f);
-            float newDistance = m_orthoScale / qTan(halfFovRad);
+            float newDistance = m_orthoScale * 0.5f / qTan(halfFovRad);
 
             // Clamp to safe range
             newDistance = qBound(MIN_DISTANCE, newDistance, MAX_DISTANCE);
@@ -186,9 +199,9 @@ void Camera3D::setCameraAngle(float degrees) {
         } else {
             // Perspective → Ortho transition
             // Compute new ortho scale to preserve apparent size
-            // Formula: S_new = D_curr * tan(θ/2)
+            // Formula: S_new = 2 * D_curr * tan(θ/2)
             float halfFovRad = qDegreesToRadians(m_fov * 0.5f);
-            m_orthoScale = currentDistance * qTan(halfFovRad);
+            m_orthoScale = 2.0f * currentDistance * qTan(halfFovRad);
         }
 
         m_projectionType = targetProjection;

@@ -89,7 +89,7 @@ private:
     // Projection parameters
     ProjectionType m_projectionType = ProjectionType::Perspective;
     float m_fov = 45.0f;           // Used in perspective mode
-    float m_orthoScale = 1.0f;     // Used in orthographic mode (world units per pixel)
+    float m_orthoScale = 1.0f;     // Used in orthographic mode (world units per viewport height)
     float m_cameraAngle = 45.0f;   // 0° = ortho, >0° = perspective with FOV=angle
     float m_nearPlane = 0.1f;
     float m_farPlane = 100000.0f;
