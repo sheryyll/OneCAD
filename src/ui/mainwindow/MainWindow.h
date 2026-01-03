@@ -5,13 +5,13 @@
 
 class QLabel;
 class QSlider;
+class QEvent;
 
 namespace onecad {
 namespace ui {
 
 class Viewport;
 class ModelNavigator;
-class PropertyInspector;
 class ContextToolbar;
 
 /**
@@ -39,15 +39,17 @@ private slots:
 private:
     void setupMenuBar();
     void setupToolBar();
-    void setupDocks();
     void setupViewport();
+    void setupNavigatorOverlay();
     void setupStatusBar();
     void applyTheme();
+    void positionNavigatorOverlay();
+
+    bool eventFilter(QObject* obj, QEvent* event) override;
 
     // UI Components
     Viewport* m_viewport = nullptr;
     ModelNavigator* m_navigator = nullptr;
-    PropertyInspector* m_inspector = nullptr;
     ContextToolbar* m_toolbar = nullptr;
     
     // Status bar labels

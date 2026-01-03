@@ -196,6 +196,16 @@ const QString& ThemeManager::getDarkStyleSheet() {
         QTreeWidget::item:selected {
             background-color: #094771;
         }
+        QToolButton#navigatorOverlayButton {
+            background-color: rgba(0, 0, 0, 0.55);
+            color: #f5f5f5;
+            border: 1px solid rgba(255, 255, 255, 0.35);
+            border-radius: 6px;
+            padding: 0px;
+        }
+        QToolButton#navigatorOverlayButton:hover {
+            background-color: rgba(0, 0, 0, 0.75);
+        }
 
         /* Inspector */
         QWidget#inspectorContainer {
@@ -366,6 +376,17 @@ const QString& ThemeManager::getLightStyleSheet() {
         QTreeWidget::item:selected {
             background-color: #cce8ff;
             color: #000000;
+        }
+        QToolButton#navigatorOverlayButton {
+            background-color: rgba(255, 255, 255, 0.85);
+            color: #222222;
+            border: 1px solid rgba(0, 0, 0, 0.2);
+            border-radius: 6px;
+            padding: 0px;
+        }
+        QToolButton#navigatorOverlayButton:hover {
+            background-color: rgba(255, 255, 255, 1.0);
+            border: 1px solid rgba(0, 0, 0, 0.35);
         }
 
         /* Inspector */

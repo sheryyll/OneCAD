@@ -3,7 +3,6 @@
 #include "../viewport/Viewport.h"
 #include "../../render/Camera3D.h"
 #include "../navigator/ModelNavigator.h"
-#include "../inspector/PropertyInspector.h"
 #include "../toolbar/ContextToolbar.h"
 
 #include <QMenuBar>
@@ -17,6 +16,7 @@
 #include <QSettings>
 #include <QHBoxLayout>
 #include <QWidget>
+#include <QEvent>
 
 namespace onecad {
 namespace ui {
@@ -32,7 +32,7 @@ MainWindow::MainWindow(QWidget* parent)
     setupMenuBar();
     setupToolBar();
     setupViewport();
-    setupDocks();
+    setupNavigatorOverlay();
     setupStatusBar();
 
     loadSettings();
@@ -137,20 +137,6 @@ void MainWindow::setupMenuBar() {
 
     viewMenu->addSeparator();
     
-    QAction* navAction = viewMenu->addAction(tr("&Navigator"));
-    navAction->setCheckable(true);
-    navAction->setChecked(true);
-    connect(navAction, &QAction::toggled, this, [this](bool checked) {
-        m_navigator->setVisible(checked);
-    });
-    
-    QAction* inspAction = viewMenu->addAction(tr("&Inspector"));
-    inspAction->setCheckable(true);
-    inspAction->setChecked(true);
-    connect(inspAction, &QAction::toggled, this, [this](bool checked) {
-        m_inspector->setVisible(checked);
-    });
-    
     // Help menu
     QMenu* helpMenu = menuBar->addMenu(tr("&Help"));
     helpMenu->addAction(tr("&About OneCAD"), this, [this]() {
@@ -178,22 +164,32 @@ void MainWindow::setupViewport() {
     
     connect(m_viewport, &Viewport::mousePositionChanged,
             this, &MainWindow::onMousePositionChanged);
+
+    m_viewport->installEventFilter(this);
 }
 
-void MainWindow::setupDocks() {
-    // Left dock: Navigator
-    m_navigator = new ModelNavigator(this);
-    addDockWidget(Qt::LeftDockWidgetArea, m_navigator);
-    
-    // Right dock: Inspector
-    m_inspector = new PropertyInspector(this);
-    addDockWidget(Qt::RightDockWidgetArea, m_inspector);
-    
-    // Set corners to dock areas
-    setCorner(Qt::TopLeftCorner, Qt::LeftDockWidgetArea);
-    setCorner(Qt::BottomLeftCorner, Qt::LeftDockWidgetArea);
-    setCorner(Qt::TopRightCorner, Qt::RightDockWidgetArea);
-    setCorner(Qt::BottomRightCorner, Qt::RightDockWidgetArea);
+void MainWindow::setupNavigatorOverlay() {
+    m_navigator = new ModelNavigator(m_viewport);
+    m_navigator->show();
+    m_navigator->raise();
+    positionNavigatorOverlay();
+}
+
+void MainWindow::positionNavigatorOverlay() {
+    if (!m_viewport || !m_navigator) {
+        return;
+    }
+
+    const int margin = 20;
+    m_navigator->move(margin, margin);
+}
+
+bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
+    if (obj == m_viewport && event->type() == QEvent::Resize) {
+        positionNavigatorOverlay();
+    }
+
+    return QMainWindow::eventFilter(obj, event);
 }
 
 void MainWindow::setupStatusBar() {
