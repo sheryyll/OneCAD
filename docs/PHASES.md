@@ -68,12 +68,12 @@ This document outlines the phased implementation strategy for OneCAD, ensuring a
 ### 2.1 Sketch Infrastructure ✅
 - [x] **Sketch Entity**: Complete data model (894 lines in `Sketch.cpp`).
 - [x] **Workplane System**: Coordinate transforms (3D World <-> 2D Local) via `SketchPlane`.
-- [ ] **Snap System**: Object snapping (Endpoint, Midpoint, Center). *Deferred to Phase 5.*
+- [~] **Snap System**: Object snapping (Vertex, Grid). *Missing: Midpoint, Center, Tangent.*
 
-### 2.2 Sketch Tools (Partial)
-- [x] **Primitives**: Line, Arc, Circle implemented. *Missing: Rectangle tool, Ellipse.*
+### 2.2 Sketch Tools (Complete)
+- [x] **Primitives**: Line, Arc, Circle, Rectangle implemented. *Missing: Ellipse.*
 - [x] **Construction Geometry**: Toggling construction/normal mode via `isConstruction` flag.
-- [ ] **Visual Feedback**: Real-time preview while drawing (SketchRenderer interface only).
+- [x] **Visual Feedback**: Real-time preview via OpenGL VBOs/VAOs in `SketchRenderer`.
 
 ### 2.3 Constraint Solver (PlaneGCS) ✅
 **STATUS: COMPLETE**
