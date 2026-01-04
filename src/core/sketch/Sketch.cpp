@@ -214,24 +214,32 @@ bool Sketch::removeEntity(EntityID id) {
         }
     }
 
+    // Track points that may become orphaned after this entity is removed
+    std::vector<EntityID> potentiallyOrphanedPoints;
+
     if (auto* line = dynamic_cast<SketchLine*>(entity)) {
         if (auto* start = getEntityAs<SketchPoint>(line->startPointId())) {
             start->removeConnectedEntity(line->id());
+            potentiallyOrphanedPoints.push_back(line->startPointId());
         }
         if (auto* end = getEntityAs<SketchPoint>(line->endPointId())) {
             end->removeConnectedEntity(line->id());
+            potentiallyOrphanedPoints.push_back(line->endPointId());
         }
     } else if (auto* arc = dynamic_cast<SketchArc*>(entity)) {
         if (auto* center = getEntityAs<SketchPoint>(arc->centerPointId())) {
             center->removeConnectedEntity(arc->id());
+            potentiallyOrphanedPoints.push_back(arc->centerPointId());
         }
     } else if (auto* circle = dynamic_cast<SketchCircle*>(entity)) {
         if (auto* center = getEntityAs<SketchPoint>(circle->centerPointId())) {
             center->removeConnectedEntity(circle->id());
+            potentiallyOrphanedPoints.push_back(circle->centerPointId());
         }
     } else if (auto* ellipse = dynamic_cast<SketchEllipse*>(entity)) {
         if (auto* center = getEntityAs<SketchPoint>(ellipse->centerPointId())) {
             center->removeConnectedEntity(ellipse->id());
+            potentiallyOrphanedPoints.push_back(ellipse->centerPointId());
         }
     }
 
@@ -252,6 +260,16 @@ bool Sketch::removeEntity(EntityID id) {
     entities_.erase(entities_.begin() + static_cast<long>(it->second));
     rebuildEntityIndex();
     invalidateSolver();
+
+    // Clean up orphaned points (points with no connected entities)
+    for (const auto& pointId : potentiallyOrphanedPoints) {
+        auto* point = getEntityAs<SketchPoint>(pointId);
+        if (point && point->connectedEntities().empty()) {
+            // Recursively remove orphaned point
+            removeEntity(pointId);
+        }
+    }
+
     return true;
 }
 
