@@ -32,6 +32,7 @@ namespace core::sketch {
 namespace onecad {
 namespace ui {
     class ViewCube; // Forward declaration
+    class DimensionEditor; // Forward declaration
 
     struct CameraState {
         QVector3D position;
@@ -65,7 +66,11 @@ public:
 
     // Tool management
     core::sketch::tools::SketchToolManager* toolManager() const;
+    core::sketch::SketchRenderer* sketchRenderer() const;
     core::sketch::Vec2d screenToSketch(const QPoint& screenPos) const;
+
+    // Sketch update notification
+    void notifySketchUpdated();
 
     // Document access (for rendering all sketches in 3D mode)
     void setDocument(app::Document* document);
@@ -113,6 +118,7 @@ protected:
     
     // Mouse events
     void mousePressEvent(QMouseEvent* event) override;
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
@@ -140,6 +146,7 @@ private:
     std::unique_ptr<core::sketch::SketchRenderer> m_sketchRenderer;
     std::unique_ptr<core::sketch::tools::SketchToolManager> m_toolManager;
     ViewCube* m_viewCube = nullptr;
+    DimensionEditor* m_dimensionEditor = nullptr;
     QVariantAnimation* m_cameraAnimation = nullptr;
 
     // Sketch mode

@@ -115,6 +115,36 @@ EntityID Sketch::addCircle(double centerX, double centerY, double radius, bool c
     return addCircle(centerId, radius, construction);
 }
 
+EntityID Sketch::addEllipse(EntityID centerId, double majorRadius, double minorRadius,
+                            double rotation, bool construction) {
+    auto* centerPoint = getEntityAs<SketchPoint>(centerId);
+    if (!centerPoint) {
+        return {};
+    }
+
+    // Normalize ellipse parameters: ensure major >= minor
+    if (minorRadius > majorRadius) {
+        std::swap(majorRadius, minorRadius);
+        rotation += std::numbers::pi / 2.0;
+        // Normalize rotation to [-π, π]
+        if (rotation > std::numbers::pi) {
+            rotation -= 2.0 * std::numbers::pi;
+        }
+    }
+
+    auto ellipse = std::make_unique<SketchEllipse>(centerId, majorRadius, minorRadius, rotation);
+    ellipse->setConstruction(construction);
+
+    EntityID id = ellipse->id();
+    entityIndex_[id] = entities_.size();
+    entities_.push_back(std::move(ellipse));
+
+    centerPoint->addConnectedEntity(id);
+
+    invalidateSolver();
+    return id;
+}
+
 bool Sketch::removeEntity(EntityID id) {
     auto it = entityIndex_.find(id);
     if (it == entityIndex_.end()) {
@@ -152,6 +182,10 @@ bool Sketch::removeEntity(EntityID id) {
                 if (circle->centerPointId() == id) {
                     dependents.push_back(circle->id());
                 }
+            } else if (auto* ellipse = dynamic_cast<SketchEllipse*>(candidate.get())) {
+                if (ellipse->centerPointId() == id) {
+                    dependents.push_back(ellipse->id());
+                }
             }
         }
 
@@ -173,6 +207,8 @@ bool Sketch::removeEntity(EntityID id) {
                     removeEntity(arc->id());
                 } else if (auto* circle = dynamic_cast<SketchCircle*>(connected)) {
                     removeEntity(circle->id());
+                } else if (auto* ellipse = dynamic_cast<SketchEllipse*>(connected)) {
+                    removeEntity(ellipse->id());
                 }
             }
         }
@@ -192,6 +228,10 @@ bool Sketch::removeEntity(EntityID id) {
     } else if (auto* circle = dynamic_cast<SketchCircle*>(entity)) {
         if (auto* center = getEntityAs<SketchPoint>(circle->centerPointId())) {
             center->removeConnectedEntity(circle->id());
+        }
+    } else if (auto* ellipse = dynamic_cast<SketchEllipse*>(entity)) {
+        if (auto* center = getEntityAs<SketchPoint>(ellipse->centerPointId())) {
+            center->removeConnectedEntity(ellipse->id());
         }
     }
 
@@ -360,6 +400,63 @@ ConstraintID Sketch::addAngle(EntityID line1, EntityID line2, double angleDegree
 
 ConstraintID Sketch::addFixed(EntityID) {
     return {};
+}
+
+ConstraintID Sketch::addPointOnCurve(EntityID pointId, EntityID curveId,
+                                      CurvePosition position) {
+    // Validate point exists
+    if (!getEntityAs<SketchPoint>(pointId)) {
+        return {};
+    }
+
+    // Validate curve exists and get its type
+    auto* curve = getEntity(curveId);
+    if (!curve) {
+        return {};
+    }
+
+    auto curveType = curve->type();
+    if (curveType != EntityType::Arc && curveType != EntityType::Circle &&
+        curveType != EntityType::Ellipse && curveType != EntityType::Line) {
+        return {};
+    }
+
+    // Auto-detect position if Arbitrary and curve is Arc
+    CurvePosition finalPosition = position;
+    if (position == CurvePosition::Arbitrary && curveType == EntityType::Arc) {
+        finalPosition = detectArcPosition(pointId, curveId);
+    }
+
+    return addConstraint(std::make_unique<constraints::PointOnCurveConstraint>(
+        pointId, curveId, finalPosition));
+}
+
+CurvePosition Sketch::detectArcPosition(EntityID pointId, EntityID arcId) const {
+    constexpr double kPositionTolerance = 1e-6;  // mm
+
+    auto* point = getEntityAs<SketchPoint>(pointId);
+    auto* arc = getEntityAs<SketchArc>(arcId);
+    if (!point || !arc) {
+        return CurvePosition::Arbitrary;
+    }
+
+    auto* centerPt = getEntityAs<SketchPoint>(arc->centerPointId());
+    if (!centerPt) {
+        return CurvePosition::Arbitrary;
+    }
+
+    gp_Pnt2d centerPos = centerPt->position();
+    gp_Pnt2d startPos = arc->startPoint(centerPos);
+    gp_Pnt2d endPos = arc->endPoint(centerPos);
+    gp_Pnt2d testPos = point->position();
+
+    if (testPos.Distance(startPos) < kPositionTolerance) {
+        return CurvePosition::Start;
+    }
+    if (testPos.Distance(endPos) < kPositionTolerance) {
+        return CurvePosition::End;
+    }
+    return CurvePosition::Arbitrary;
 }
 
 bool Sketch::removeConstraint(ConstraintID id) {
@@ -572,6 +669,16 @@ ValidationResult Sketch::validate() const {
                 result.errors.push_back("Circle radius too small: " + circle->id());
                 result.invalidEntities.push_back(circle->id());
             }
+            continue;
+        }
+
+        if (auto* ellipse = dynamic_cast<SketchEllipse*>(entity.get())) {
+            if (ellipse->majorRadius() < constants::MIN_GEOMETRY_SIZE ||
+                ellipse->minorRadius() < constants::MIN_GEOMETRY_SIZE) {
+                result.valid = false;
+                result.errors.push_back("Ellipse radii too small: " + ellipse->id());
+                result.invalidEntities.push_back(ellipse->id());
+            }
         }
     }
 
@@ -672,6 +779,8 @@ std::unique_ptr<Sketch> Sketch::fromJson(const std::string& json) {
                 entity = std::make_unique<SketchArc>();
             } else if (type == "Circle") {
                 entity = std::make_unique<SketchCircle>();
+            } else if (type == "Ellipse") {
+                entity = std::make_unique<SketchEllipse>();
             } else {
                 return nullptr;
             }
@@ -704,6 +813,10 @@ std::unique_ptr<Sketch> Sketch::fromJson(const std::string& json) {
         } else if (auto* circle = dynamic_cast<SketchCircle*>(entity.get())) {
             if (auto* center = sketch->getEntityAs<SketchPoint>(circle->centerPointId())) {
                 center->addConnectedEntity(circle->id());
+            }
+        } else if (auto* ellipse = dynamic_cast<SketchEllipse*>(entity.get())) {
+            if (auto* center = sketch->getEntityAs<SketchPoint>(ellipse->centerPointId())) {
+                center->addConnectedEntity(ellipse->id());
             }
         }
     }
@@ -789,6 +902,29 @@ EntityID Sketch::findNearest(const Vec2d& pos, double tolerance,
                 distance = std::abs(center->position().Distance(query) - circle->radius());
                 break;
             }
+            case EntityType::Ellipse: {
+                auto* ellipse = dynamic_cast<SketchEllipse*>(entity.get());
+                if (!ellipse) {
+                    break;
+                }
+                auto* center = getEntityAs<SketchPoint>(ellipse->centerPointId());
+                if (!center) {
+                    break;
+                }
+                constexpr int kSamples = 72;
+                double minDist = std::numeric_limits<double>::infinity();
+                gp_Pnt2d centerPos = center->position();
+                double step = 2.0 * std::numbers::pi / static_cast<double>(kSamples);
+                for (int i = 0; i < kSamples; ++i) {
+                    double t = step * static_cast<double>(i);
+                    gp_Pnt2d point = ellipse->pointAtParameter(centerPos, t);
+                    minDist = std::min(minDist, point.Distance(query));
+                }
+                if (minDist <= tolerance) {
+                    distance = minDist;
+                }
+                break;
+            }
             default:
                 break;
         }
@@ -859,6 +995,18 @@ std::vector<EntityID> Sketch::findInRect(const Vec2d& min, const Vec2d& max) con
                     break;
                 }
                 bounds = circle->boundsWithCenter(center->position());
+                break;
+            }
+            case EntityType::Ellipse: {
+                auto* ellipse = dynamic_cast<SketchEllipse*>(entity.get());
+                if (!ellipse) {
+                    break;
+                }
+                auto* center = getEntityAs<SketchPoint>(ellipse->centerPointId());
+                if (!center) {
+                    break;
+                }
+                bounds = ellipse->boundsWithCenter(center->position());
                 break;
             }
             default:

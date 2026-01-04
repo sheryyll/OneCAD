@@ -8,6 +8,8 @@ add_library(onecad_ui STATIC
     navigator/ModelNavigator.cpp
     toolbar/ContextToolbar.cpp
     sketch/ConstraintPanel.cpp
+    sketch/DimensionEditor.cpp
+    sketch/SketchModePanel.cpp
 )
 
 target_include_directories(onecad_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

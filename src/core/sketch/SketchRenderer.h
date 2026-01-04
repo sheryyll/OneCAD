@@ -267,6 +267,11 @@ public:
     void clearSelection();
 
     /**
+     * @brief Get all selected entity IDs
+     */
+    std::vector<EntityID> getSelectedEntities() const;
+
+    /**
      * @brief Set hover entity
      */
     void setHoverEntity(EntityID id);
@@ -325,6 +330,16 @@ public:
      * @brief Set preview circle (full arc 0 to 2π)
      */
     void setPreviewCircle(const Vec2d& center, double radius);
+
+    /**
+     * @brief Set preview ellipse
+     * @param center Center position
+     * @param majorRadius Semi-major axis length
+     * @param minorRadius Semi-minor axis length
+     * @param rotation Rotation angle of major axis (radians)
+     */
+    void setPreviewEllipse(const Vec2d& center, double majorRadius,
+                           double minorRadius, double rotation);
 
     /**
      * @brief Set preview rectangle (4 lines)
@@ -498,6 +513,8 @@ private:
      */
     std::vector<Vec2d> tessellateArc(const Vec2d& center, double radius,
                                       double startAngle, double endAngle) const;
+    std::vector<Vec2d> tessellateEllipse(const Vec2d& center, double majorRadius,
+                                         double minorRadius, double rotation) const;
 
     /**
      * @brief Update region render data from loop detection

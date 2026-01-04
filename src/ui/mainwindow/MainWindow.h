@@ -20,6 +20,7 @@ namespace app {
 }
 namespace core::sketch {
     class Sketch;
+    enum class ConstraintType;
 }
 namespace ui {
 
@@ -27,6 +28,7 @@ class Viewport;
 class ModelNavigator;
 class ContextToolbar;
 class ConstraintPanel;
+class SketchModePanel;
 
 /**
  * @brief Main application window for OneCAD.
@@ -54,6 +56,7 @@ private slots:
     void onImport();
     void onMousePositionChanged(double x, double y, double z);
     void onSketchUpdated();
+    void onConstraintRequested(core::sketch::ConstraintType constraintType);
 
 private:
     void setupMenuBar();
@@ -66,6 +69,7 @@ private:
     void setupNavigatorOverlayButton();
     void positionNavigatorOverlayButton();
     void positionConstraintPanel();
+    void positionSketchModePanel();
 
     bool eventFilter(QObject* obj, QEvent* event) override;
 
@@ -75,6 +79,7 @@ private:
     ContextToolbar* m_toolbar = nullptr;
     SidebarToolButton* m_navigatorOverlayButton = nullptr;
     ConstraintPanel* m_constraintPanel = nullptr;
+    SketchModePanel* m_sketchModePanel = nullptr;
 
     // Document model (owns all sketches)
     std::unique_ptr<app::Document> m_document;

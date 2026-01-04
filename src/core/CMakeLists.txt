@@ -6,6 +6,7 @@ add_library(onecad_core STATIC
     sketch/SketchLine.cpp
     sketch/SketchArc.cpp
     sketch/SketchCircle.cpp
+    sketch/SketchEllipse.cpp
     sketch/SketchConstraint.cpp
     sketch/SketchRenderer.cpp
     sketch/SnapManager.cpp
@@ -17,6 +18,10 @@ add_library(onecad_core STATIC
     sketch/tools/LineTool.cpp
     sketch/tools/CircleTool.cpp
     sketch/tools/RectangleTool.cpp
+    sketch/tools/ArcTool.cpp
+    sketch/tools/EllipseTool.cpp
+    sketch/tools/TrimTool.cpp
+    sketch/tools/MirrorTool.cpp
     loop/AdjacencyGraph.cpp
     loop/LoopDetector.cpp
     loop/FaceBuilder.cpp
@@ -47,6 +52,7 @@ set(SKETCH_HEADERS
     sketch/SketchLine.h
     sketch/SketchArc.h
     sketch/SketchCircle.h
+    sketch/SketchEllipse.h
     sketch/SketchConstraint.h
     sketch/Sketch.h
     sketch/SketchRenderer.h
@@ -60,6 +66,10 @@ set(SKETCH_HEADERS
     sketch/tools/LineTool.h
     sketch/tools/CircleTool.h
     sketch/tools/RectangleTool.h
+    sketch/tools/ArcTool.h
+    sketch/tools/EllipseTool.h
+    sketch/tools/TrimTool.h
+    sketch/tools/MirrorTool.h
 )
 
 set(LOOP_HEADERS

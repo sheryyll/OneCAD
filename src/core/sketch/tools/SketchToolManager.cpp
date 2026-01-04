@@ -2,6 +2,10 @@
 #include "LineTool.h"
 #include "CircleTool.h"
 #include "RectangleTool.h"
+#include "ArcTool.h"
+#include "EllipseTool.h"
+#include "TrimTool.h"
+#include "MirrorTool.h"
 #include "../Sketch.h"
 #include "../SketchRenderer.h"
 
@@ -97,6 +101,26 @@ void SketchToolManager::handleMousePress(const Vec2d& pos, Qt::MouseButton butto
     } else if (auto* rectTool = dynamic_cast<RectangleTool*>(activeTool_.get())) {
         if (rectTool->wasRectangleCreated()) {
             rectTool->clearRectangleCreatedFlag();
+            created = true;
+        }
+    } else if (auto* arcTool = dynamic_cast<ArcTool*>(activeTool_.get())) {
+        if (arcTool->wasArcCreated()) {
+            arcTool->clearArcCreatedFlag();
+            created = true;
+        }
+    } else if (auto* ellipseTool = dynamic_cast<EllipseTool*>(activeTool_.get())) {
+        if (ellipseTool->wasEllipseCreated()) {
+            ellipseTool->clearEllipseCreatedFlag();
+            created = true;
+        }
+    } else if (auto* trimTool = dynamic_cast<TrimTool*>(activeTool_.get())) {
+        if (trimTool->wasEntityDeleted()) {
+            trimTool->clearDeletedFlag();
+            created = true;  // Geometry changed
+        }
+    } else if (auto* mirrorTool = dynamic_cast<MirrorTool*>(activeTool_.get())) {
+        if (mirrorTool->wasGeometryCreated()) {
+            mirrorTool->clearCreatedFlag();
             created = true;
         }
     }
@@ -196,6 +220,14 @@ std::unique_ptr<SketchTool> SketchToolManager::createTool(ToolType type) {
             return std::make_unique<CircleTool>();
         case ToolType::Rectangle:
             return std::make_unique<RectangleTool>();
+        case ToolType::Arc:
+            return std::make_unique<ArcTool>();
+        case ToolType::Ellipse:
+            return std::make_unique<EllipseTool>();
+        case ToolType::Trim:
+            return std::make_unique<TrimTool>();
+        case ToolType::Mirror:
+            return std::make_unique<MirrorTool>();
         case ToolType::None:
         default:
             return nullptr;

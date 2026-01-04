@@ -28,7 +28,11 @@ enum class ToolType {
     None,
     Line,
     Circle,
-    Rectangle
+    Rectangle,
+    Arc,
+    Ellipse,
+    Trim,
+    Mirror
 };
 
 /**

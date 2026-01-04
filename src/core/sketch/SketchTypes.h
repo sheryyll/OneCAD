@@ -61,6 +61,15 @@ enum class ConstraintType {
 };
 
 /**
+ * @brief Position specification for PointOnCurve constraints
+ */
+enum class CurvePosition {
+    Start,      // Constrain to arc/curve start point
+    End,        // Constrain to arc/curve end point
+    Arbitrary   // Constrain to arbitrary point on curve
+};
+
+/**
  * @brief Constraint state indicating solve status
  */
 enum class ConstraintState {

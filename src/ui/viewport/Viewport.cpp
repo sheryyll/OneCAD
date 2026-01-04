@@ -3,10 +3,13 @@
 #include "../../render/Grid3D.h"
 #include "../../core/sketch/SketchRenderer.h"
 #include "../../core/sketch/Sketch.h"
+#include "../../core/sketch/SketchConstraint.h"
+#include "../../core/sketch/constraints/Constraints.h"
 #include "../../core/sketch/tools/SketchToolManager.h"
 #include "../../app/document/Document.h"
 #include "../viewcube/ViewCube.h"
 #include "../theme/ThemeManager.h"
+#include "../sketch/DimensionEditor.h"
 
 #include <QKeyEvent>
 #include <QPainter>
@@ -154,6 +157,30 @@ Viewport::Viewport(QWidget* parent)
 
     // Connect Viewport -> ViewCube
     connect(this, &Viewport::cameraChanged, m_viewCube, &ViewCube::updateRotation);
+
+    // Setup DimensionEditor for inline constraint editing
+    m_dimensionEditor = new DimensionEditor(this);
+    m_dimensionEditor->hide();
+    connect(m_dimensionEditor, &DimensionEditor::valueConfirmed,
+            this, [this](const QString& constraintId, double newValue) {
+        if (!m_activeSketch) return;
+
+        auto* constraint = m_activeSketch->getConstraint(constraintId.toStdString());
+        if (!constraint) return;
+
+        // Check if it's a dimensional constraint
+        auto* dimConstraint = dynamic_cast<core::sketch::DimensionalConstraint*>(constraint);
+        if (dimConstraint) {
+            dimConstraint->setValue(newValue);
+            m_activeSketch->solve();
+            if (m_sketchRenderer) {
+                m_sketchRenderer->updateGeometry();
+                m_sketchRenderer->updateConstraints();
+            }
+            update();
+            emit sketchUpdated();
+        }
+    });
 
     // Theme integration
     m_themeConnection = connect(&ThemeManager::instance(), &ThemeManager::themeChanged,
@@ -460,6 +487,58 @@ void Viewport::mousePressEvent(QMouseEvent* event) {
     }
 
     QOpenGLWidget::mousePressEvent(event);
+}
+
+void Viewport::mouseDoubleClickEvent(QMouseEvent* event) {
+    if (!m_inSketchMode || !m_sketchRenderer || !m_activeSketch) {
+        QOpenGLWidget::mouseDoubleClickEvent(event);
+        return;
+    }
+
+    if (event->button() != Qt::LeftButton) {
+        QOpenGLWidget::mouseDoubleClickEvent(event);
+        return;
+    }
+
+    // Check if double-clicked on a constraint
+    sketch::Vec2d sketchPos = screenToSketch(event->pos());
+    sketch::ConstraintID constraintId = m_sketchRenderer->pickConstraint(sketchPos, 5.0);
+
+    if (!constraintId.empty()) {
+        auto* constraint = m_activeSketch->getConstraint(constraintId);
+        if (constraint) {
+            // Check if it's a dimensional constraint
+            auto* dimConstraint = dynamic_cast<sketch::DimensionalConstraint*>(constraint);
+            if (dimConstraint) {
+                // Get the units based on constraint type
+                QString units;
+                switch (constraint->type()) {
+                    case sketch::ConstraintType::Distance:
+                    case sketch::ConstraintType::Radius:
+                    case sketch::ConstraintType::Diameter:
+                        units = "mm";
+                        break;
+                    case sketch::ConstraintType::Angle:
+                        units = QString::fromUtf8("°");
+                        break;
+                    default:
+                        units = "";
+                        break;
+                }
+
+                // Show the dimension editor at the click position
+                m_dimensionEditor->showForConstraint(
+                    QString::fromStdString(constraintId),
+                    dimConstraint->value(),
+                    units,
+                    event->pos()
+                );
+                return;
+            }
+        }
+    }
+
+    QOpenGLWidget::mouseDoubleClickEvent(event);
 }
 
 void Viewport::mouseMoveEvent(QMouseEvent* event) {
@@ -949,6 +1028,10 @@ tools::SketchToolManager* Viewport::toolManager() const {
     return m_toolManager.get();
 }
 
+sketch::SketchRenderer* Viewport::sketchRenderer() const {
+    return m_sketchRenderer.get();
+}
+
 sketch::Vec2d Viewport::screenToSketch(const QPoint& screenPos) const {
     // Convert screen coordinates to sketch plane coordinates
     // This involves unprojecting from screen space through the camera
@@ -1218,6 +1301,10 @@ void Viewport::setDocument(app::Document* document) {
     }
 
     update();
+}
+
+void Viewport::notifySketchUpdated() {
+    emit sketchUpdated();
 }
 
 } // namespace ui

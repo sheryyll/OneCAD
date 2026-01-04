@@ -448,6 +448,113 @@ private:
     EntityID m_entityId;
 };
 
+/**
+ * @brief Diameter constraint - fixes diameter of circle or arc
+ *
+ * DOF removed: 1 (equivalent to radius constraint, but expressed as diameter)
+ */
+class DiameterConstraint : public DimensionalConstraint {
+public:
+    DiameterConstraint(const EntityID& circleOrArc, double diameter);
+
+    ConstraintType type() const override { return ConstraintType::Diameter; }
+    std::string typeName() const override { return "Diameter"; }
+    std::string toString() const override;
+    std::string units() const override { return "mm"; }
+
+    std::vector<EntityID> referencedEntities() const override;
+    int degreesRemoved() const override { return 1; }
+
+    bool isSatisfied(const Sketch& sketch, double tolerance) const override;
+    double getError(const Sketch& sketch) const override;
+
+    void serialize(QJsonObject& json) const override;
+    bool deserialize(const QJsonObject& json) override;
+    gp_Pnt2d getIconPosition(const Sketch& sketch) const override;
+    gp_Pnt2d getDimensionTextPosition(const Sketch& sketch) const override;
+
+    const EntityID& entityId() const { return m_entityId; }
+    double diameter() const { return value(); }
+    void setDiameter(double d) { setValue(d); }
+
+private:
+    friend class onecad::core::sketch::ConstraintFactory;
+    DiameterConstraint() : DimensionalConstraint(0.0) {}
+    EntityID m_entityId;
+};
+
+/**
+ * @brief Concentric constraint - makes two circles/arcs share the same center
+ *
+ * DOF removed: 2 (equivalent to coincident on center points)
+ */
+class ConcentricConstraint : public SketchConstraint {
+public:
+    ConcentricConstraint(const EntityID& entity1, const EntityID& entity2);
+
+    ConstraintType type() const override { return ConstraintType::Concentric; }
+    std::string typeName() const override { return "Concentric"; }
+    std::string toString() const override { return "Concentric"; }
+
+    std::vector<EntityID> referencedEntities() const override;
+    int degreesRemoved() const override { return 2; }
+
+    bool isSatisfied(const Sketch& sketch, double tolerance) const override;
+    double getError(const Sketch& sketch) const override;
+
+    void serialize(QJsonObject& json) const override;
+    bool deserialize(const QJsonObject& json) override;
+    gp_Pnt2d getIconPosition(const Sketch& sketch) const override;
+
+    const EntityID& entity1() const { return m_entity1; }
+    const EntityID& entity2() const { return m_entity2; }
+
+private:
+    friend class onecad::core::sketch::ConstraintFactory;
+    ConcentricConstraint() = default;
+    EntityID m_entity1;
+    EntityID m_entity2;
+};
+
+/**
+ * @brief Point on curve constraint - constrains point to lie on curve
+ *
+ * Supports arcs, circles, ellipses, and lines.
+ * Position can be Start, End, or Arbitrary:
+ * - Start/End: Point fully constrained to calculated endpoint (DOF removed: 2)
+ * - Arbitrary: Point constrained to curve but can slide (DOF removed: 1)
+ */
+class PointOnCurveConstraint : public SketchConstraint {
+public:
+    PointOnCurveConstraint(const EntityID& pointId, const EntityID& curveId,
+                           CurvePosition position = CurvePosition::Arbitrary);
+
+    ConstraintType type() const override { return ConstraintType::OnCurve; }
+    std::string typeName() const override { return "PointOnCurve"; }
+    std::string toString() const override;
+
+    std::vector<EntityID> referencedEntities() const override;
+    int degreesRemoved() const override;
+
+    bool isSatisfied(const Sketch& sketch, double tolerance) const override;
+    double getError(const Sketch& sketch) const override;
+
+    void serialize(QJsonObject& json) const override;
+    bool deserialize(const QJsonObject& json) override;
+    gp_Pnt2d getIconPosition(const Sketch& sketch) const override;
+
+    const EntityID& pointId() const { return m_pointId; }
+    const EntityID& curveId() const { return m_curveId; }
+    CurvePosition position() const { return m_position; }
+
+private:
+    friend class onecad::core::sketch::ConstraintFactory;
+    PointOnCurveConstraint() = default;
+    EntityID m_pointId;
+    EntityID m_curveId;
+    CurvePosition m_position = CurvePosition::Arbitrary;
+};
+
 } // namespace onecad::core::sketch::constraints
 
 #endif // ONECAD_CORE_SKETCH_CONSTRAINTS_H

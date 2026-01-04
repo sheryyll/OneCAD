@@ -8,6 +8,9 @@
 #include "../navigator/ModelNavigator.h"
 #include "../toolbar/ContextToolbar.h"
 #include "../sketch/ConstraintPanel.h"
+#include "../sketch/SketchModePanel.h"
+#include "../../core/sketch/SketchRenderer.h"
+#include "../../core/sketch/SketchTypes.h"
 
 #include <QMenuBar>
 #include <QStatusBar>
@@ -27,6 +30,13 @@
 
 namespace onecad {
 namespace ui {
+
+namespace {
+// Default constraint values
+constexpr double kDefaultDistanceMm = 10.0;
+constexpr double kDefaultAngleDeg = 90.0;
+constexpr double kDefaultRadiusMm = 10.0;
+} // anonymous namespace
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent) {
@@ -324,6 +334,22 @@ void MainWindow::positionConstraintPanel() {
     m_constraintPanel->raise();
 }
 
+void MainWindow::positionSketchModePanel() {
+    if (!m_viewport || !m_sketchModePanel) {
+        return;
+    }
+
+    const int margin = 20;
+    // Position on right side, below constraint panel
+    int x = m_viewport->width() - m_sketchModePanel->width() - margin;
+    int y = margin + 130;  // Same starting position, panels stack vertically
+    if (m_constraintPanel && m_constraintPanel->isVisible()) {
+        y = m_constraintPanel->y() + m_constraintPanel->height() + 10;
+    }
+    m_sketchModePanel->move(x, y);
+    m_sketchModePanel->raise();
+}
+
 void MainWindow::setupViewport() {
     QWidget* central = new QWidget(this);
     QHBoxLayout* layout = new QHBoxLayout(central);
@@ -360,6 +386,12 @@ void MainWindow::setupViewport() {
     m_constraintPanel = new ConstraintPanel(m_viewport);
     m_constraintPanel->setVisible(false);
 
+    // Create sketch mode panel (hidden initially)
+    m_sketchModePanel = new SketchModePanel(m_viewport);
+    m_sketchModePanel->setVisible(false);
+    connect(m_sketchModePanel, &SketchModePanel::constraintRequested,
+            this, &MainWindow::onConstraintRequested);
+
     m_viewport->installEventFilter(this);
 }
 
@@ -383,6 +415,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
         positionToolbarOverlay();
         positionNavigatorOverlayButton();
         positionConstraintPanel();
+        positionSketchModePanel();
     }
 
     return QMainWindow::eventFilter(obj, event);
@@ -524,12 +557,24 @@ void MainWindow::onSketchModeChanged(bool inSketchMode) {
             m_constraintPanel->setVisible(true);
             positionConstraintPanel();
         }
+
+        // Show sketch mode panel
+        if (m_sketchModePanel) {
+            m_sketchModePanel->setSketch(activeSketch);
+            m_sketchModePanel->setVisible(true);
+            positionSketchModePanel();
+        }
     } else {
         updateDofStatus(nullptr);
 
         // Hide constraint panel
         if (m_constraintPanel) {
             m_constraintPanel->setVisible(false);
+        }
+
+        // Hide sketch mode panel
+        if (m_sketchModePanel) {
+            m_sketchModePanel->setVisible(false);
         }
     }
 }
@@ -563,6 +608,169 @@ void MainWindow::onSketchUpdated() {
     // Refresh constraint panel
     if (m_constraintPanel) {
         m_constraintPanel->refresh();
+    }
+}
+
+void MainWindow::onConstraintRequested(core::sketch::ConstraintType constraintType) {
+    if (!m_viewport || !m_viewport->isInSketchMode()) {
+        return;
+    }
+
+    core::sketch::Sketch* sketch = m_viewport->activeSketch();
+    if (!sketch) {
+        return;
+    }
+
+    // Get selected entities from renderer
+    auto* renderer = m_viewport->sketchRenderer();
+    if (!renderer) {
+        return;
+    }
+
+    std::vector<core::sketch::EntityID> selected = renderer->getSelectedEntities();
+
+    using CT = core::sketch::ConstraintType;
+    CT type = constraintType;
+    core::sketch::ConstraintID constraintId;
+
+    switch (type) {
+        case CT::Horizontal:
+            if (selected.size() == 1) {
+                constraintId = sketch->addHorizontal(selected[0]);
+            } else if (selected.size() == 2) {
+                constraintId = sketch->addHorizontal(selected[0], selected[1]);
+            }
+            break;
+
+        case CT::Vertical:
+            if (selected.size() == 1) {
+                constraintId = sketch->addVertical(selected[0]);
+            } else if (selected.size() == 2) {
+                constraintId = sketch->addVertical(selected[0], selected[1]);
+            }
+            break;
+
+        case CT::Parallel:
+            if (selected.size() == 2) {
+                constraintId = sketch->addParallel(selected[0], selected[1]);
+            } else {
+                m_toolStatus->setText(tr("Parallel requires exactly 2 lines"));
+                return;
+            }
+            break;
+
+        case CT::Perpendicular:
+            if (selected.size() == 2) {
+                constraintId = sketch->addPerpendicular(selected[0], selected[1]);
+            } else {
+                m_toolStatus->setText(tr("Perpendicular requires exactly 2 lines"));
+                return;
+            }
+            break;
+
+        case CT::Coincident:
+            if (selected.size() == 2) {
+                constraintId = sketch->addCoincident(selected[0], selected[1]);
+            } else {
+                m_toolStatus->setText(tr("Coincident requires exactly 2 points"));
+                return;
+            }
+            break;
+
+        case CT::Fixed:
+            if (selected.size() == 1) {
+                constraintId = sketch->addFixed(selected[0]);
+            } else {
+                m_toolStatus->setText(tr("Fixed requires exactly 1 point"));
+                return;
+            }
+            break;
+
+        case CT::Distance:
+            if (selected.size() == 2) {
+                constraintId = sketch->addDistance(selected[0], selected[1], kDefaultDistanceMm);
+            } else {
+                m_toolStatus->setText(tr("Distance requires exactly 2 entities"));
+                return;
+            }
+            break;
+
+        case CT::Angle:
+            if (selected.size() == 2) {
+                constraintId = sketch->addAngle(selected[0], selected[1], kDefaultAngleDeg);
+            } else {
+                m_toolStatus->setText(tr("Angle requires exactly 2 lines"));
+                return;
+            }
+            break;
+
+        case CT::Radius:
+            if (selected.size() == 1) {
+                constraintId = sketch->addRadius(selected[0], kDefaultRadiusMm);
+            } else {
+                m_toolStatus->setText(tr("Radius requires exactly 1 circle or arc"));
+                return;
+            }
+            break;
+
+        case CT::OnCurve: {
+            // Need exactly 1 point and 1 curve
+            core::sketch::EntityID pointId, curveId;
+            for (const auto& id : selected) {
+                auto* entity = sketch->getEntity(id);
+                if (!entity) continue;
+
+                if (entity->type() == core::sketch::EntityType::Point) {
+                    if (!pointId.empty()) {
+                        m_toolStatus->setText(tr("Point On Curve requires exactly 1 point"));
+                        return;
+                    }
+                    pointId = id;
+                } else if (entity->type() == core::sketch::EntityType::Arc ||
+                           entity->type() == core::sketch::EntityType::Circle ||
+                           entity->type() == core::sketch::EntityType::Ellipse ||
+                           entity->type() == core::sketch::EntityType::Line) {
+                    if (!curveId.empty()) {
+                        m_toolStatus->setText(tr("Point On Curve requires exactly 1 curve"));
+                        return;
+                    }
+                    curveId = id;
+                }
+            }
+
+            if (pointId.empty() || curveId.empty()) {
+                m_toolStatus->setText(tr("Point On Curve requires 1 point and 1 curve"));
+                return;
+            }
+
+            // Auto-detect position (Start/End/Arbitrary)
+            constraintId = sketch->addPointOnCurve(pointId, curveId);
+            break;
+        }
+
+        default:
+            // Other constraint types not yet implemented
+            m_toolStatus->setText(tr("Constraint type not implemented"));
+            return;
+    }
+
+    if (!constraintId.empty()) {
+        // Solve and update
+        auto result = sketch->solve();
+        if (result.success) {
+            renderer->updateGeometry();
+            renderer->updateConstraints();
+            m_viewport->notifySketchUpdated();
+            m_viewport->update();
+            m_toolStatus->setText(tr("Constraint applied"));
+        } else {
+            // Solver failed - show error to user
+            m_toolStatus->setText(tr("Constraint applied - solver failed (over-constrained or conflicting)"));
+            // Note: constraint was still added to sketch, just not solved
+            // Could optionally remove the constraint here if desired
+        }
+    } else {
+        m_toolStatus->setText(tr("Cannot apply constraint to selection"));
     }
 }
 

@@ -21,6 +21,7 @@
 #include "SketchLine.h"
 #include "SketchArc.h"
 #include "SketchCircle.h"
+#include "SketchEllipse.h"
 #include "SketchConstraint.h"
 
 #include <memory>
@@ -193,6 +194,16 @@ public:
     EntityID addCircle(double centerX, double centerY, double radius, bool construction = false);
 
     /**
+     * @brief Add an ellipse
+     * @param centerId ID of center point
+     * @param majorRadius Major axis radius (distance from center to ellipse edge along major axis)
+     * @param minorRadius Minor axis radius (distance from center to ellipse edge along minor axis)
+     * @param rotation Rotation angle of major axis (radians)
+     */
+    EntityID addEllipse(EntityID centerId, double majorRadius, double minorRadius,
+                        double rotation = 0.0, bool construction = false);
+
+    /**
      * @brief Remove an entity and all constraints referencing it
      */
     bool removeEntity(EntityID id);
@@ -288,6 +299,15 @@ public:
      * @brief Add fixed constraint to point
      */
     ConstraintID addFixed(EntityID point);
+
+    /**
+     * @brief Add point-on-curve constraint
+     * @param pointId ID of point to constrain
+     * @param curveId ID of curve (Arc, Circle, Ellipse, or Line)
+     * @param position Start/End/Arbitrary (auto-detected if Arbitrary)
+     */
+    ConstraintID addPointOnCurve(EntityID pointId, EntityID curveId,
+                                  CurvePosition position = CurvePosition::Arbitrary);
 
     /**
      * @brief Remove a constraint
@@ -461,6 +481,14 @@ private:
      * @brief Update constraint index map after removal
      */
     void rebuildConstraintIndex();
+
+    /**
+     * @brief Auto-detect curve position (Start/End/Arbitrary) for arc
+     * @param pointId Point to check
+     * @param arcId Arc to check against
+     * @return Detected position based on proximity to arc endpoints
+     */
+    CurvePosition detectArcPosition(EntityID pointId, EntityID arcId) const;
 };
 
 } // namespace onecad::core::sketch

@@ -10,6 +10,7 @@
 #include "Sketch.h"
 #include "SketchArc.h"
 #include "SketchCircle.h"
+#include "SketchEllipse.h"
 #include "SketchLine.h"
 #include "SketchPoint.h"
 #include "../loop/LoopDetector.h"
@@ -1256,6 +1257,19 @@ void SketchRenderer::updateGeometry() {
                 }
                 break;
             }
+            case EntityType::Ellipse: {
+                auto* ellipse = dynamic_cast<const SketchEllipse*>(entityPtr.get());
+                if (ellipse) {
+                    auto* center = sketch_->getEntityAs<SketchPoint>(ellipse->centerPointId());
+                    if (center) {
+                        Vec2d c{center->x(), center->y()};
+                        data.vertices = tessellateEllipse(c, ellipse->majorRadius(),
+                                                          ellipse->minorRadius(),
+                                                          ellipse->rotation());
+                    }
+                }
+                break;
+            }
             default:
                 break;
         }
@@ -1598,6 +1612,17 @@ void SketchRenderer::clearSelection() {
     vboDirty_ = true;
 }
 
+std::vector<EntityID> SketchRenderer::getSelectedEntities() const {
+    std::vector<EntityID> result;
+    result.reserve(entitySelections_.size());
+    for (const auto& [id, state] : entitySelections_) {
+        if (state == SelectionState::Selected || state == SelectionState::Dragging) {
+            result.push_back(id);
+        }
+    }
+    return result;
+}
+
 void SketchRenderer::setHoverEntity(EntityID id) {
     if (hoverEntity_ != id) {
         hoverEntity_ = id;
@@ -1628,6 +1653,13 @@ void SketchRenderer::setPreviewCircle(const Vec2d& center, double radius) {
     // Circle is arc from 0 to 2π
     setPreviewArc(center, radius, 0.0, 2.0 * M_PI);
     preview_.type = EntityType::Circle;
+}
+
+void SketchRenderer::setPreviewEllipse(const Vec2d& center, double majorRadius,
+                                        double minorRadius, double rotation) {
+    preview_.active = true;
+    preview_.type = EntityType::Ellipse;
+    preview_.vertices = tessellateEllipse(center, majorRadius, minorRadius, rotation);
 }
 
 void SketchRenderer::setPreviewRectangle(const Vec2d& corner1, const Vec2d& corner2) {
@@ -1773,10 +1805,26 @@ EntityID SketchRenderer::pickEntity(const Vec2d& screenPos, double tolerance) co
     return closest;
 }
 
-ConstraintID SketchRenderer::pickConstraint(const Vec2d& /*screenPos*/,
-                                            double /*tolerance*/) const {
-    // Not yet implemented
-    return {};
+ConstraintID SketchRenderer::pickConstraint(const Vec2d& screenPos,
+                                            double tolerance) const {
+    // Note: screenPos must be in sketch coordinates, not pixel screen coordinates.
+    // Caller should transform screen pixels to sketch space before calling.
+    ConstraintID closest;
+    double minDist = tolerance;
+
+    for (const auto& data : constraintRenderData_) {
+        // Calculate distance from click to constraint icon position
+        double dx = screenPos.x - data.position.x;
+        double dy = screenPos.y - data.position.y;
+        double dist = std::sqrt(dx * dx + dy * dy);
+
+        if (dist < minDist) {
+            minDist = dist;
+            closest = data.id;
+        }
+    }
+
+    return closest;
 }
 
 std::vector<Vec2d> SketchRenderer::tessellateArc(const Vec2d& center, double radius,
@@ -1804,6 +1852,50 @@ std::vector<Vec2d> SketchRenderer::tessellateArc(const Vec2d& center, double rad
         double angle = startAngle + step * static_cast<double>(i);
         result.push_back({center.x + radius * std::cos(angle),
                           center.y + radius * std::sin(angle)});
+    }
+
+    return result;
+}
+
+std::vector<Vec2d> SketchRenderer::tessellateEllipse(const Vec2d& center, double majorRadius,
+                                                     double minorRadius, double rotation) const {
+    std::vector<Vec2d> result;
+
+    double a = std::abs(majorRadius);
+    double b = std::abs(minorRadius);
+    if (a <= 0.0 || b <= 0.0) {
+        return result;
+    }
+
+    double h = ((a - b) * (a - b)) / ((a + b) * (a + b));
+    double circumference = std::numbers::pi * (a + b) *
+        (1.0 + (3.0 * h) / (10.0 + std::sqrt(4.0 - 3.0 * h)));
+
+    double arcAngleDeg = style_.arcTessellationAngle > 0 ? style_.arcTessellationAngle : 5.0;
+    double arcAngleRad = arcAngleDeg * std::numbers::pi / 180.0;
+    double pixelsPerUnit = pixelScale_ > 0.0 ? (1.0 / pixelScale_) : 1.0;
+    double arcLengthPixels = circumference * pixelsPerUnit;
+    double segmentsByPixels = arcLengthPixels > 0.0 ? (arcLengthPixels / 5.0) : 1.0;
+    double segmentsByAngle = (2.0 * std::numbers::pi) / arcAngleRad;
+
+    int segments = static_cast<int>(std::ceil(std::max(segmentsByPixels, segmentsByAngle)));
+    segments = std::clamp(segments, style_.minArcSegments, style_.maxArcSegments);
+
+    result.reserve(static_cast<size_t>(segments) + 1);
+
+    double cosR = std::cos(rotation);
+    double sinR = std::sin(rotation);
+    double step = (2.0 * std::numbers::pi) / static_cast<double>(segments);
+
+    for (int i = 0; i <= segments; ++i) {
+        double t = step * static_cast<double>(i);
+        double ex = a * std::cos(t);
+        double ey = b * std::sin(t);
+
+        double rx = ex * cosR - ey * sinR;
+        double ry = ex * sinR + ey * cosR;
+
+        result.push_back({center.x + rx, center.y + ry});
     }
 
     return result;

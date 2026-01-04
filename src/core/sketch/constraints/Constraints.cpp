@@ -1029,4 +1029,287 @@ gp_Pnt2d RadiusConstraint::getDimensionTextPosition(const Sketch& sketch) const 
     return getIconPosition(sketch);
 }
 
+//==============================================================================
+// DiameterConstraint
+//==============================================================================
+
+DiameterConstraint::DiameterConstraint(const EntityID& circleOrArc, double diameter)
+    : DimensionalConstraint(diameter),
+      m_entityId(circleOrArc) {
+}
+
+std::string DiameterConstraint::toString() const {
+    return "Diameter: " + formatValue(value(), units());
+}
+
+std::vector<EntityID> DiameterConstraint::referencedEntities() const {
+    return {m_entityId};
+}
+
+bool DiameterConstraint::isSatisfied(const Sketch& sketch, double tolerance) const {
+    return getError(sketch) <= tolerance;
+}
+
+double DiameterConstraint::getError(const Sketch& sketch) const {
+    gp_Pnt2d center;
+    double radius = 0.0;
+    if (!getCurveData(sketch, m_entityId, center, radius)) {
+        return std::numeric_limits<double>::infinity();
+    }
+    // Diameter = 2 * radius
+    return std::abs(2.0 * radius - value());
+}
+
+void DiameterConstraint::serialize(QJsonObject& json) const {
+    serializeBase(json);
+    json["entity"] = QString::fromStdString(m_entityId);
+    json["diameter"] = value();
+}
+
+bool DiameterConstraint::deserialize(const QJsonObject& json) {
+    if (!json.contains("entity") || !json.contains("diameter")) {
+        return false;
+    }
+
+    if (!json["entity"].isString() || !json["diameter"].isDouble()) {
+        return false;
+    }
+
+    if (!deserializeBase(json, "Diameter")) {
+        return false;
+    }
+
+    m_entityId = json["entity"].toString().toStdString();
+    setValue(json["diameter"].toDouble());
+    return true;
+}
+
+gp_Pnt2d DiameterConstraint::getIconPosition(const Sketch& sketch) const {
+    gp_Pnt2d center;
+    double radius = 0.0;
+    if (!getCurveData(sketch, m_entityId, center, radius)) {
+        return gp_Pnt2d(0.0, 0.0);
+    }
+    // Position icon at right edge of circle
+    return gp_Pnt2d(center.X() + radius, center.Y());
+}
+
+gp_Pnt2d DiameterConstraint::getDimensionTextPosition(const Sketch& sketch) const {
+    return getIconPosition(sketch);
+}
+
+//==============================================================================
+// ConcentricConstraint
+//==============================================================================
+
+ConcentricConstraint::ConcentricConstraint(const EntityID& entity1, const EntityID& entity2)
+    : m_entity1(entity1), m_entity2(entity2) {
+}
+
+std::vector<EntityID> ConcentricConstraint::referencedEntities() const {
+    return {m_entity1, m_entity2};
+}
+
+bool ConcentricConstraint::isSatisfied(const Sketch& sketch, double tolerance) const {
+    return getError(sketch) <= tolerance;
+}
+
+double ConcentricConstraint::getError(const Sketch& sketch) const {
+    gp_Pnt2d center1, center2;
+    double radius1 = 0.0, radius2 = 0.0;
+
+    if (!getCurveData(sketch, m_entity1, center1, radius1)) {
+        return std::numeric_limits<double>::infinity();
+    }
+    if (!getCurveData(sketch, m_entity2, center2, radius2)) {
+        return std::numeric_limits<double>::infinity();
+    }
+
+    // Error is distance between centers
+    return center1.Distance(center2);
+}
+
+void ConcentricConstraint::serialize(QJsonObject& json) const {
+    serializeBase(json);
+    json["entity1"] = QString::fromStdString(m_entity1);
+    json["entity2"] = QString::fromStdString(m_entity2);
+}
+
+bool ConcentricConstraint::deserialize(const QJsonObject& json) {
+    if (!deserializeBase(json, "Concentric")) {
+        return false;
+    }
+
+    if (!json.contains("entity1") || !json.contains("entity2")) {
+        return false;
+    }
+
+    if (!json["entity1"].isString() || !json["entity2"].isString()) {
+        return false;
+    }
+
+    m_entity1 = json["entity1"].toString().toStdString();
+    m_entity2 = json["entity2"].toString().toStdString();
+    return true;
+}
+
+gp_Pnt2d ConcentricConstraint::getIconPosition(const Sketch& sketch) const {
+    gp_Pnt2d center;
+    double radius = 0.0;
+    if (!getCurveData(sketch, m_entity1, center, radius)) {
+        return gp_Pnt2d(0.0, 0.0);
+    }
+    return center;
+}
+
+//==============================================================================
+// PointOnCurveConstraint
+//==============================================================================
+
+PointOnCurveConstraint::PointOnCurveConstraint(const EntityID& pointId, const EntityID& curveId,
+                                               CurvePosition position)
+    : m_pointId(pointId), m_curveId(curveId), m_position(position) {
+}
+
+std::vector<EntityID> PointOnCurveConstraint::referencedEntities() const {
+    return {m_pointId, m_curveId};
+}
+
+int PointOnCurveConstraint::degreesRemoved() const {
+    // Start/End positions fully constrain the point (2 DOF)
+    // Arbitrary position allows sliding along curve (1 DOF)
+    return (m_position == CurvePosition::Arbitrary) ? 1 : 2;
+}
+
+std::string PointOnCurveConstraint::toString() const {
+    std::string posStr;
+    switch (m_position) {
+        case CurvePosition::Start:
+            posStr = "Start";
+            break;
+        case CurvePosition::End:
+            posStr = "End";
+            break;
+        case CurvePosition::Arbitrary:
+            posStr = "Arbitrary";
+            break;
+    }
+    return "PointOnCurve(" + posStr + ")";
+}
+
+bool PointOnCurveConstraint::isSatisfied(const Sketch& sketch, double tolerance) const {
+    return getError(sketch) <= tolerance;
+}
+
+double PointOnCurveConstraint::getError(const Sketch& sketch) const {
+    auto* point = sketch.getEntityAs<SketchPoint>(m_pointId);
+    if (!point) {
+        return std::numeric_limits<double>::infinity();
+    }
+
+    gp_Pnt2d pointPos = point->position();
+    auto* curve = sketch.getEntity(m_curveId);
+    if (!curve) {
+        return std::numeric_limits<double>::infinity();
+    }
+
+    // Check curve type and compute error based on position
+    switch (curve->type()) {
+        case EntityType::Arc: {
+            auto* arc = sketch.getEntityAs<SketchArc>(m_curveId);
+            auto* centerPt = sketch.getEntityAs<SketchPoint>(arc->centerPointId());
+            if (!centerPt) return std::numeric_limits<double>::infinity();
+
+            gp_Pnt2d centerPos = centerPt->position();
+
+            if (m_position == CurvePosition::Start) {
+                gp_Pnt2d startPos = arc->startPoint(centerPos);
+                return pointPos.Distance(startPos);
+            } else if (m_position == CurvePosition::End) {
+                gp_Pnt2d endPos = arc->endPoint(centerPos);
+                return pointPos.Distance(endPos);
+            } else {
+                // Arbitrary - point should lie on arc's circle
+                double dist = pointPos.Distance(centerPos);
+                return std::abs(dist - arc->radius());
+            }
+        }
+        case EntityType::Circle: {
+            auto* circle = sketch.getEntityAs<SketchCircle>(m_curveId);
+            auto* centerPt = sketch.getEntityAs<SketchPoint>(circle->centerPointId());
+            if (!centerPt) return std::numeric_limits<double>::infinity();
+
+            gp_Pnt2d centerPos = centerPt->position();
+            double dist = pointPos.Distance(centerPos);
+            return std::abs(dist - circle->radius());
+        }
+        case EntityType::Line: {
+            auto* line = sketch.getEntityAs<SketchLine>(m_curveId);
+            auto* p1 = sketch.getEntityAs<SketchPoint>(line->startPointId());
+            auto* p2 = sketch.getEntityAs<SketchPoint>(line->endPointId());
+            if (!p1 || !p2) return std::numeric_limits<double>::infinity();
+
+            gp_Pnt2d lineStart = p1->position();
+            gp_Pnt2d lineEnd = p2->position();
+
+            if (m_position == CurvePosition::Start) {
+                return pointPos.Distance(lineStart);
+            } else if (m_position == CurvePosition::End) {
+                return pointPos.Distance(lineEnd);
+            } else {
+                // Arbitrary - distance from point to line
+                gp_Vec2d lineVec(lineStart, lineEnd);
+                gp_Vec2d pointVec(lineStart, pointPos);
+                double lineLen = lineVec.Magnitude();
+                if (lineLen < 1e-10) return pointVec.Magnitude();
+
+                // Project point onto line
+                double t = pointVec.Dot(lineVec) / (lineLen * lineLen);
+                if (t < 0.0) t = 0.0;
+                if (t > 1.0) t = 1.0;
+
+                gp_Pnt2d projection(lineStart.X() + t * lineVec.X(),
+                                    lineStart.Y() + t * lineVec.Y());
+                return pointPos.Distance(projection);
+            }
+        }
+        default:
+            return std::numeric_limits<double>::infinity();
+    }
+}
+
+void PointOnCurveConstraint::serialize(QJsonObject& json) const {
+    serializeBase(json);
+    json["pointId"] = QString::fromStdString(m_pointId);
+    json["curveId"] = QString::fromStdString(m_curveId);
+    json["position"] = static_cast<int>(m_position);
+}
+
+bool PointOnCurveConstraint::deserialize(const QJsonObject& json) {
+    if (!deserializeBase(json, "PointOnCurve")) {
+        return false;
+    }
+
+    if (!json.contains("pointId") || !json.contains("curveId") || !json.contains("position")) {
+        return false;
+    }
+
+    if (!json["pointId"].isString() || !json["curveId"].isString() || !json["position"].isDouble()) {
+        return false;
+    }
+
+    m_pointId = json["pointId"].toString().toStdString();
+    m_curveId = json["curveId"].toString().toStdString();
+    m_position = static_cast<CurvePosition>(json["position"].toInt());
+    return true;
+}
+
+gp_Pnt2d PointOnCurveConstraint::getIconPosition(const Sketch& sketch) const {
+    auto* point = sketch.getEntityAs<SketchPoint>(m_pointId);
+    if (!point) {
+        return gp_Pnt2d(0.0, 0.0);
+    }
+    return point->position();
+}
+
 } // namespace onecad::core::sketch::constraints
