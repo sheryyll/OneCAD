@@ -17,9 +17,12 @@
 #define ONECAD_CORE_SKETCH_SKETCH_RENDERER_H
 
 #include "SketchTypes.h"
-#include <memory>
-#include <vector>
 #include <functional>
+#include <memory>
+#include <optional>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 // Forward declarations for OpenGL types
 class QOpenGLShaderProgram;
@@ -79,6 +82,9 @@ struct SketchColors {
     // Background
     Vec3d gridMajor{0.3, 0.3, 0.3};
     Vec3d gridMinor{0.15, 0.15, 0.15};
+
+    // Region fill
+    Vec3d regionFill{0.4, 0.7, 1.0};
 };
 
 /**
@@ -113,6 +119,11 @@ struct SketchRenderStyle {
     // Dash pattern for construction geometry
     float dashLength = 5.0f;
     float gapLength = 3.0f;
+
+    // Region fill opacity
+    float regionOpacity = 0.1f;
+    float regionHoverOpacity = 0.3f;
+    float regionSelectedOpacity = 0.5f;
 };
 
 /**
@@ -287,6 +298,38 @@ public:
      */
     void setConflictingConstraints(const std::vector<ConstraintID>& ids);
 
+    // ========== Region Selection ==========
+
+    /**
+     * @brief Find region at position (sketch coordinates)
+     */
+    std::optional<std::string> pickRegion(const Vec2d& sketchPos) const;
+
+    /**
+     * @brief Set hovered region
+     */
+    void setRegionHover(std::optional<std::string> regionId);
+
+    /**
+     * @brief Clear hovered region
+     */
+    void clearRegionHover();
+
+    /**
+     * @brief Toggle selection for region
+     */
+    void toggleRegionSelection(const std::string& regionId);
+
+    /**
+     * @brief Clear region selection
+     */
+    void clearRegionSelection();
+
+    /**
+     * @brief Check if region is selected
+     */
+    bool isRegionSelected(const std::string& regionId) const;
+
     // ========== Preview Geometry ==========
 
     /**
@@ -378,6 +421,7 @@ public:
     ConstraintID pickConstraint(const Vec2d& screenPos, double tolerance = 5.0) const;
 
 private:
+    friend class SketchRendererImpl;
     // PIMPL for OpenGL internals
     std::unique_ptr<SketchRendererImpl> impl_;
 
@@ -404,6 +448,20 @@ private:
         Vec2d position{0.0, 0.0};
         SnapType type = SnapType::None;
     } snapIndicator_;
+
+    // Region data
+    struct RegionRenderData {
+        std::string id;
+        std::vector<Vec2d> outerPolygon;
+        std::vector<std::vector<Vec2d>> holes;
+        std::vector<Vec2d> triangles;
+        Vec2d boundsMin{0.0, 0.0};
+        Vec2d boundsMax{0.0, 0.0};
+        double area = 0.0;
+    };
+    std::vector<RegionRenderData> regionRenderData_;
+    std::unordered_set<std::string> selectedRegions_;
+    std::optional<std::string> hoverRegion_;
 
     // DOF indicator
     int currentDOF_ = 0;
@@ -444,6 +502,11 @@ private:
      */
     std::vector<Vec2d> tessellateArc(const Vec2d& center, double radius,
                                       double startAngle, double endAngle) const;
+
+    /**
+     * @brief Update region render data from loop detection
+     */
+    void updateRegions();
 
     /**
      * @brief Build VBO data from entity render data

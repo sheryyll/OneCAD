@@ -199,6 +199,9 @@ struct LoopDetectorConfig {
 
     /// Whether to validate results
     bool validate = true;
+
+    /// Whether to planarize intersections by splitting edges
+    bool planarizeIntersections = false;
 };
 
 /**
@@ -287,7 +290,8 @@ private:
      */
     std::unique_ptr<AdjacencyGraph> buildGraph(
         const sk::Sketch& sketch,
-        const std::unordered_set<sk::EntityID>* selection = nullptr) const;
+        const std::unordered_set<sk::EntityID>* selection = nullptr,
+        bool planarize = false) const;
 
     /**
      * @brief Find all simple cycles in graph using DFS
@@ -298,12 +302,22 @@ private:
     std::vector<Wire> findCycles(const AdjacencyGraph& graph) const;
 
     /**
+     * @brief Extract planar faces (bounded cycles) from a planar graph
+     */
+    std::vector<Loop> findFaces(const AdjacencyGraph& graph) const;
+
+    /**
      * @brief Compute loop properties (area, centroid, bounds)
      *
      * PLACEHOLDER: Shoelace formula for polygon area
      * Area = 0.5 * |Σ(x_i * y_{i+1} - x_{i+1} * y_i)|
      */
     void computeLoopProperties(Loop& loop, const sk::Sketch& sketch) const;
+
+    /**
+     * @brief Compute loop properties from a polygon
+     */
+    void computeLoopPropertiesFromPolygon(Loop& loop) const;
 
     /**
      * @brief Build face hierarchy from loops

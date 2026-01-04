@@ -59,6 +59,107 @@ void appendArcSamples(std::vector<sk::Vec2d>& points,
     }
 }
 
+struct Segment {
+    sk::Vec2d start;
+    sk::Vec2d end;
+    sk::EntityID baseId;
+};
+
+struct SplitPoint {
+    double t = 0.0;
+    sk::Vec2d point{0.0, 0.0};
+};
+
+sk::Vec2d diff(const sk::Vec2d& a, const sk::Vec2d& b) {
+    return {a.x - b.x, a.y - b.y};
+}
+
+double cross2d(const sk::Vec2d& a, const sk::Vec2d& b) {
+    return a.x * b.y - a.y * b.x;
+}
+
+double segmentParam(const sk::Vec2d& a, const sk::Vec2d& b, const sk::Vec2d& p) {
+    sk::Vec2d ab = diff(b, a);
+    double denom = ab.x * ab.x + ab.y * ab.y;
+    if (denom <= 0.0) {
+        return 0.0;
+    }
+    return ((p.x - a.x) * ab.x + (p.y - a.y) * ab.y) / denom;
+}
+
+bool pointOnSegment(const sk::Vec2d& a, const sk::Vec2d& b, const sk::Vec2d& p, double tolerance) {
+    sk::Vec2d ab = diff(b, a);
+    sk::Vec2d ap = diff(p, a);
+    if (std::abs(cross2d(ab, ap)) > tolerance) {
+        return false;
+    }
+    double dot = (p.x - a.x) * (p.x - b.x) + (p.y - a.y) * (p.y - b.y);
+    return dot <= tolerance * tolerance;
+}
+
+void addSplitPoint(std::vector<SplitPoint>& splits, double t, const sk::Vec2d& point,
+                   double tolerance) {
+    t = std::clamp(t, 0.0, 1.0);
+    double tol2 = tolerance * tolerance;
+    for (const auto& existing : splits) {
+        if (distanceSquared(existing.point, point) <= tol2) {
+            return;
+        }
+    }
+    splits.push_back({t, point});
+}
+
+bool segmentIntersection(const sk::Vec2d& p1, const sk::Vec2d& p2,
+                         const sk::Vec2d& q1, const sk::Vec2d& q2,
+                         double tolerance,
+                         double& tOut, double& uOut, sk::Vec2d& outPoint) {
+    sk::Vec2d r = diff(p2, p1);
+    sk::Vec2d s = diff(q2, q1);
+    double denom = cross2d(r, s);
+    if (std::abs(denom) <= tolerance) {
+        return false;
+    }
+
+    sk::Vec2d qp = diff(q1, p1);
+    double t = cross2d(qp, s) / denom;
+    double u = cross2d(qp, r) / denom;
+    if (t < -tolerance || t > 1.0 + tolerance ||
+        u < -tolerance || u > 1.0 + tolerance) {
+        return false;
+    }
+
+    t = std::clamp(t, 0.0, 1.0);
+    u = std::clamp(u, 0.0, 1.0);
+    outPoint = {p1.x + t * r.x, p1.y + t * r.y};
+    tOut = t;
+    uOut = u;
+    return true;
+}
+
+std::vector<sk::Vec2d> tessellateArcPoints(const sk::Vec2d& center,
+                                           double radius,
+                                           double startAngle,
+                                           double endAngle) {
+    std::vector<sk::Vec2d> points;
+    points.reserve(16);
+    points.push_back({center.x + radius * std::cos(startAngle),
+                      center.y + radius * std::sin(startAngle)});
+    appendArcSamples(points, center, radius, startAngle, endAngle, true);
+    return points;
+}
+
+std::vector<sk::Vec2d> tessellateCirclePoints(const sk::Vec2d& center, double radius) {
+    std::vector<sk::Vec2d> points;
+    int segments = 32;
+    points.reserve(static_cast<size_t>(segments) + 1);
+    for (int i = 0; i <= segments; ++i) {
+        double angle = (2.0 * std::numbers::pi_v<double> * i) / static_cast<double>(segments);
+        points.push_back({center.x + radius * std::cos(angle),
+                          center.y + radius * std::sin(angle)});
+    }
+    return points;
+}
+
 std::string makeCycleKey(const std::vector<sk::EntityID>& edges) {
     std::vector<sk::EntityID> sorted = edges;
     std::sort(sorted.begin(), sorted.end());
@@ -180,7 +281,8 @@ LoopDetectionResult LoopDetector::detect(const sk::Sketch& sketch,
         selection.insert(selectedEntities.begin(), selectedEntities.end());
     }
 
-    auto graph = buildGraph(sketch, selection.empty() ? nullptr : &selection);
+    auto graph = buildGraph(sketch, selection.empty() ? nullptr : &selection,
+                            config_.planarizeIntersections);
     if (!graph) {
         result.success = false;
         result.errorMessage = "Failed to build adjacency graph";
@@ -190,61 +292,88 @@ LoopDetectionResult LoopDetector::detect(const sk::Sketch& sketch,
     std::vector<Loop> loops;
     std::unordered_set<sk::EntityID> edgesInLoops;
 
-    std::vector<Wire> cycles = findCycles(*graph);
-    for (auto& wire : cycles) {
-        if (config_.maxLoops > 0 && loops.size() >= config_.maxLoops) {
-            break;
+    if (config_.planarizeIntersections) {
+        loops = findFaces(*graph);
+        if (config_.maxLoops > 0 && loops.size() > config_.maxLoops) {
+            loops.resize(config_.maxLoops);
         }
-
-        Loop loop;
-        loop.wire = wire;
-        computeLoopProperties(loop, sketch);
-
-        if (config_.validate && !validateLoop(loop, sketch)) {
-            if (!config_.findAllLoops) {
+        for (auto& loop : loops) {
+            if (config_.validate && !validateLoop(loop, sketch)) {
+                if (!config_.findAllLoops) {
+                    loop.polygon.clear();
+                    continue;
+                }
+            }
+            if (!config_.findAllLoops && std::abs(loop.signedArea) < kMinArea) {
+                loop.polygon.clear();
                 continue;
+            }
+            for (const auto& id : loop.wire.edges) {
+                edgesInLoops.insert(id);
+            }
+        }
+        loops.erase(std::remove_if(loops.begin(), loops.end(),
+                                   [](const Loop& loop) {
+                                       return loop.polygon.empty();
+                                   }),
+                    loops.end());
+    } else {
+        std::vector<Wire> cycles = findCycles(*graph);
+        for (auto& wire : cycles) {
+            if (config_.maxLoops > 0 && loops.size() >= config_.maxLoops) {
+                break;
+            }
+
+            Loop loop;
+            loop.wire = wire;
+            computeLoopProperties(loop, sketch);
+
+            if (config_.validate && !validateLoop(loop, sketch)) {
+                if (!config_.findAllLoops) {
+                    continue;
+                }
+            }
+
+            if (!config_.findAllLoops && std::abs(loop.signedArea) < kMinArea) {
+                continue;
+            }
+
+            loops.push_back(loop);
+            for (const auto& id : loop.wire.edges) {
+                edgesInLoops.insert(id);
             }
         }
 
-        if (!config_.findAllLoops && std::abs(loop.signedArea) < kMinArea) {
-            continue;
-        }
-
-        loops.push_back(loop);
-        for (const auto& id : loop.wire.edges) {
-            edgesInLoops.insert(id);
-        }
-    }
-
-    for (const auto& entity : sketch.getAllEntities()) {
-        if (!entity || entity->isConstruction()) {
-            continue;
-        }
-        if (!selection.empty() && selection.find(entity->id()) == selection.end()) {
-            continue;
-        }
-        if (entity->type() != sk::EntityType::Circle) {
-            continue;
-        }
-        if (edgesInLoops.find(entity->id()) != edgesInLoops.end()) {
-            continue;
-        }
-
-        Loop circleLoop;
-        circleLoop.wire.edges.push_back(entity->id());
-        circleLoop.wire.forward.push_back(true);
-        circleLoop.wire.startPoint = entity->id();
-        circleLoop.wire.endPoint = entity->id();
-        computeLoopProperties(circleLoop, sketch);
-
-        if (config_.validate && !validateLoop(circleLoop, sketch)) {
-            if (!config_.findAllLoops) {
+        for (const auto& entity : sketch.getAllEntities()) {
+            if (!entity || entity->isConstruction()) {
                 continue;
             }
-        }
+            if (!selection.empty() && selection.find(entity->id()) == selection.end()) {
+                continue;
+            }
+            if (entity->type() != sk::EntityType::Circle) {
+                continue;
+            }
+            if (edgesInLoops.find(entity->id()) != edgesInLoops.end()) {
+                continue;
+            }
 
-        loops.push_back(circleLoop);
-        edgesInLoops.insert(entity->id());
+            Loop circleLoop;
+            circleLoop.wire.edges.push_back(entity->id());
+            circleLoop.wire.forward.push_back(true);
+            circleLoop.wire.startPoint = entity->id();
+            circleLoop.wire.endPoint = entity->id();
+            computeLoopProperties(circleLoop, sketch);
+
+            if (config_.validate && !validateLoop(circleLoop, sketch)) {
+                if (!config_.findAllLoops) {
+                    continue;
+                }
+            }
+
+            loops.push_back(circleLoop);
+            edgesInLoops.insert(entity->id());
+        }
     }
 
     result.totalLoopsFound = static_cast<int>(loops.size());
@@ -412,7 +541,7 @@ std::optional<Wire> LoopDetector::buildWire(const sk::Sketch& sketch,
     }
 
     std::unordered_set<sk::EntityID> selection(entities.begin(), entities.end());
-    auto graph = buildGraph(sketch, &selection);
+    auto graph = buildGraph(sketch, &selection, false);
     if (!graph) {
         return std::nullopt;
     }
@@ -485,9 +614,92 @@ std::optional<Wire> LoopDetector::buildWire(const sk::Sketch& sketch,
 
 std::unique_ptr<AdjacencyGraph> LoopDetector::buildGraph(
     const sk::Sketch& sketch,
-    const std::unordered_set<sk::EntityID>* selection) const {
+    const std::unordered_set<sk::EntityID>* selection,
+    bool planarize) const {
     auto graph = std::make_unique<AdjacencyGraph>();
     double tolerance = config_.coincidenceTolerance;
+
+    if (!planarize) {
+        for (const auto& entity : sketch.getAllEntities()) {
+            if (!entity || entity->isConstruction()) {
+                continue;
+            }
+            if (selection && !selection->empty() && selection->find(entity->id()) == selection->end()) {
+                continue;
+            }
+
+            if (entity->type() == sk::EntityType::Line) {
+                auto* line = dynamic_cast<const sk::SketchLine*>(entity.get());
+                if (!line) {
+                    continue;
+                }
+                auto* start = sketch.getEntityAs<sk::SketchPoint>(line->startPointId());
+                auto* end = sketch.getEntityAs<sk::SketchPoint>(line->endPointId());
+                if (!start || !end) {
+                    continue;
+                }
+
+                sk::Vec2d startPos = toVec2(start->position());
+                sk::Vec2d endPos = toVec2(end->position());
+
+                int startNode = graph->findOrCreateNode(startPos, line->startPointId(), tolerance);
+                int endNode = graph->findOrCreateNode(endPos, line->endPointId(), tolerance);
+
+                GraphEdge edge;
+                edge.entityId = line->id();
+                edge.startNode = startNode;
+                edge.endNode = endNode;
+                edge.startPos = startPos;
+                edge.endPos = endPos;
+                graph->edgeByEntity[edge.entityId] = static_cast<int>(graph->edges.size());
+                graph->edges.push_back(std::move(edge));
+
+                graph->nodes[startNode].edges.push_back(static_cast<int>(graph->edges.size() - 1));
+                graph->nodes[endNode].edges.push_back(static_cast<int>(graph->edges.size() - 1));
+            } else if (entity->type() == sk::EntityType::Arc) {
+                auto* arc = dynamic_cast<const sk::SketchArc*>(entity.get());
+                if (!arc) {
+                    continue;
+                }
+                auto* centerPoint = sketch.getEntityAs<sk::SketchPoint>(arc->centerPointId());
+                if (!centerPoint) {
+                    continue;
+                }
+
+                gp_Pnt2d centerPos = centerPoint->position();
+                gp_Pnt2d arcStart = arc->startPoint(centerPos);
+                gp_Pnt2d arcEnd = arc->endPoint(centerPos);
+
+                sk::Vec2d startPos = toVec2(arcStart);
+                sk::Vec2d endPos = toVec2(arcEnd);
+
+                int startNode = graph->findOrCreateNode(startPos, std::nullopt, tolerance);
+                int endNode = graph->findOrCreateNode(endPos, std::nullopt, tolerance);
+
+                GraphEdge edge;
+                edge.entityId = arc->id();
+                edge.isArc = true;
+                edge.startNode = startNode;
+                edge.endNode = endNode;
+                edge.startPos = startPos;
+                edge.endPos = endPos;
+                edge.centerPos = toVec2(centerPos);
+                edge.radius = arc->radius();
+                edge.startAngle = arc->startAngle();
+                edge.endAngle = arc->endAngle();
+                graph->edgeByEntity[edge.entityId] = static_cast<int>(graph->edges.size());
+                graph->edges.push_back(std::move(edge));
+
+                graph->nodes[startNode].edges.push_back(static_cast<int>(graph->edges.size() - 1));
+                graph->nodes[endNode].edges.push_back(static_cast<int>(graph->edges.size() - 1));
+            }
+        }
+
+        return graph;
+    }
+
+    std::vector<Segment> segments;
+    segments.reserve(sketch.getAllEntities().size() * 4);
 
     for (const auto& entity : sketch.getAllEntities()) {
         if (!entity || entity->isConstruction()) {
@@ -507,24 +719,12 @@ std::unique_ptr<AdjacencyGraph> LoopDetector::buildGraph(
             if (!start || !end) {
                 continue;
             }
-
             sk::Vec2d startPos = toVec2(start->position());
             sk::Vec2d endPos = toVec2(end->position());
-
-            int startNode = graph->findOrCreateNode(startPos, line->startPointId(), tolerance);
-            int endNode = graph->findOrCreateNode(endPos, line->endPointId(), tolerance);
-
-            GraphEdge edge;
-            edge.entityId = line->id();
-            edge.startNode = startNode;
-            edge.endNode = endNode;
-            edge.startPos = startPos;
-            edge.endPos = endPos;
-            graph->edgeByEntity[edge.entityId] = static_cast<int>(graph->edges.size());
-            graph->edges.push_back(std::move(edge));
-
-            graph->nodes[startNode].edges.push_back(static_cast<int>(graph->edges.size() - 1));
-            graph->nodes[endNode].edges.push_back(static_cast<int>(graph->edges.size() - 1));
+            if (distanceSquared(startPos, endPos) <= tolerance * tolerance) {
+                continue;
+            }
+            segments.push_back({startPos, endPos, line->id() + "#seg0"});
         } else if (entity->type() == sk::EntityType::Arc) {
             auto* arc = dynamic_cast<const sk::SketchArc*>(entity.get());
             if (!arc) {
@@ -534,28 +734,141 @@ std::unique_ptr<AdjacencyGraph> LoopDetector::buildGraph(
             if (!centerPoint) {
                 continue;
             }
+            sk::Vec2d centerPos = toVec2(centerPoint->position());
+            auto points = tessellateArcPoints(centerPos, arc->radius(),
+                                              arc->startAngle(), arc->endAngle());
+            for (size_t i = 0; i + 1 < points.size(); ++i) {
+                if (distanceSquared(points[i], points[i + 1]) <= tolerance * tolerance) {
+                    continue;
+                }
+                segments.push_back({points[i], points[i + 1],
+                                    arc->id() + "#seg" + std::to_string(i)});
+            }
+        } else if (entity->type() == sk::EntityType::Circle) {
+            auto* circle = dynamic_cast<const sk::SketchCircle*>(entity.get());
+            if (!circle) {
+                continue;
+            }
+            auto* centerPoint = sketch.getEntityAs<sk::SketchPoint>(circle->centerPointId());
+            if (!centerPoint) {
+                continue;
+            }
+            sk::Vec2d centerPos = toVec2(centerPoint->position());
+            auto points = tessellateCirclePoints(centerPos, circle->radius());
+            for (size_t i = 0; i + 1 < points.size(); ++i) {
+                if (distanceSquared(points[i], points[i + 1]) <= tolerance * tolerance) {
+                    continue;
+                }
+                segments.push_back({points[i], points[i + 1],
+                                    circle->id() + "#seg" + std::to_string(i)});
+            }
+        }
+    }
 
-            gp_Pnt2d centerPos = centerPoint->position();
-            gp_Pnt2d arcStart = arc->startPoint(centerPos);
-            gp_Pnt2d arcEnd = arc->endPoint(centerPos);
+    if (segments.empty()) {
+        return graph;
+    }
 
-            sk::Vec2d startPos = toVec2(arcStart);
-            sk::Vec2d endPos = toVec2(arcEnd);
+    std::vector<std::vector<SplitPoint>> splitPoints(segments.size());
+    for (size_t i = 0; i < segments.size(); ++i) {
+        addSplitPoint(splitPoints[i], 0.0, segments[i].start, tolerance);
+        addSplitPoint(splitPoints[i], 1.0, segments[i].end, tolerance);
+    }
 
-            int startNode = graph->findOrCreateNode(startPos, std::nullopt, tolerance);
-            int endNode = graph->findOrCreateNode(endPos, std::nullopt, tolerance);
+    std::unordered_set<std::string> edgeKeys;
+    auto pointKey = [tolerance](const sk::Vec2d& p) {
+        double snap = tolerance > 0.0 ? tolerance : 1e-9;
+        long long x = static_cast<long long>(std::llround(p.x / snap));
+        long long y = static_cast<long long>(std::llround(p.y / snap));
+        return std::to_string(x) + "," + std::to_string(y);
+    };
+    auto edgeKey = [&](const sk::Vec2d& a, const sk::Vec2d& b) {
+        std::string ka = pointKey(a);
+        std::string kb = pointKey(b);
+        if (ka <= kb) {
+            return ka + "|" + kb;
+        }
+        return kb + "|" + ka;
+    };
+
+    for (size_t i = 0; i < segments.size(); ++i) {
+        for (size_t j = i + 1; j < segments.size(); ++j) {
+            const auto& a = segments[i];
+            const auto& b = segments[j];
+
+            sk::Vec2d r = diff(a.end, a.start);
+            sk::Vec2d s = diff(b.end, b.start);
+            double denom = cross2d(r, s);
+            if (std::abs(denom) <= tolerance) {
+                if (pointOnSegment(a.start, a.end, b.start, tolerance)) {
+                    addSplitPoint(splitPoints[i], segmentParam(a.start, a.end, b.start), b.start, tolerance);
+                }
+                if (pointOnSegment(a.start, a.end, b.end, tolerance)) {
+                    addSplitPoint(splitPoints[i], segmentParam(a.start, a.end, b.end), b.end, tolerance);
+                }
+                if (pointOnSegment(b.start, b.end, a.start, tolerance)) {
+                    addSplitPoint(splitPoints[j], segmentParam(b.start, b.end, a.start), a.start, tolerance);
+                }
+                if (pointOnSegment(b.start, b.end, a.end, tolerance)) {
+                    addSplitPoint(splitPoints[j], segmentParam(b.start, b.end, a.end), a.end, tolerance);
+                }
+                continue;
+            }
+
+            double t = 0.0;
+            double u = 0.0;
+            sk::Vec2d intersection;
+            if (segmentIntersection(a.start, a.end, b.start, b.end, tolerance, t, u, intersection)) {
+                addSplitPoint(splitPoints[i], t, intersection, tolerance);
+                addSplitPoint(splitPoints[j], u, intersection, tolerance);
+            }
+        }
+    }
+
+    for (size_t i = 0; i < segments.size(); ++i) {
+        auto& splits = splitPoints[i];
+        if (splits.size() < 2) {
+            continue;
+        }
+        std::sort(splits.begin(), splits.end(), [](const SplitPoint& a, const SplitPoint& b) {
+            return a.t < b.t;
+        });
+
+        std::vector<SplitPoint> uniqueSplits;
+        uniqueSplits.reserve(splits.size());
+        for (const auto& split : splits) {
+            if (uniqueSplits.empty() ||
+                distanceSquared(uniqueSplits.back().point, split.point) > tolerance * tolerance) {
+                uniqueSplits.push_back(split);
+            }
+        }
+
+        int subIndex = 0;
+        for (size_t s = 0; s + 1 < uniqueSplits.size(); ++s) {
+            const auto& p1 = uniqueSplits[s].point;
+            const auto& p2 = uniqueSplits[s + 1].point;
+            if (distanceSquared(p1, p2) <= tolerance * tolerance) {
+                continue;
+            }
+
+            std::string key = edgeKey(p1, p2);
+            if (!edgeKeys.insert(key).second) {
+                continue;
+            }
+
+            int startNode = graph->findOrCreateNode(p1, std::nullopt, tolerance);
+            int endNode = graph->findOrCreateNode(p2, std::nullopt, tolerance);
+            if (startNode == endNode) {
+                continue;
+            }
 
             GraphEdge edge;
-            edge.entityId = arc->id();
-            edge.isArc = true;
+            edge.entityId = segments[i].baseId + "_p" + std::to_string(subIndex++);
             edge.startNode = startNode;
             edge.endNode = endNode;
-            edge.startPos = startPos;
-            edge.endPos = endPos;
-            edge.centerPos = toVec2(centerPos);
-            edge.radius = arc->radius();
-            edge.startAngle = arc->startAngle();
-            edge.endAngle = arc->endAngle();
+            edge.startPos = p1;
+            edge.endPos = p2;
+
             graph->edgeByEntity[edge.entityId] = static_cast<int>(graph->edges.size());
             graph->edges.push_back(std::move(edge));
 
@@ -635,6 +948,141 @@ std::vector<Wire> LoopDetector::findCycles(const AdjacencyGraph& graphBase) cons
     }
 
     return cycles;
+}
+
+std::vector<Loop> LoopDetector::findFaces(const AdjacencyGraph& graph) const {
+    struct HalfEdge {
+        int from = -1;
+        int to = -1;
+        int edgeIndex = -1;
+        int twin = -1;
+        int next = -1;
+        double angle = 0.0;
+        bool visited = false;
+    };
+
+    std::vector<HalfEdge> halfEdges;
+    halfEdges.reserve(graph.edges.size() * 2);
+    std::vector<std::vector<int>> outgoing(graph.nodes.size());
+
+    for (size_t edgeIndex = 0; edgeIndex < graph.edges.size(); ++edgeIndex) {
+        const auto& edge = graph.edges[edgeIndex];
+        if (edge.startNode < 0 || edge.endNode < 0) {
+            continue;
+        }
+
+        HalfEdge h1;
+        h1.from = edge.startNode;
+        h1.to = edge.endNode;
+        h1.edgeIndex = static_cast<int>(edgeIndex);
+        h1.angle = std::atan2(edge.endPos.y - edge.startPos.y,
+                              edge.endPos.x - edge.startPos.x);
+
+        HalfEdge h2;
+        h2.from = edge.endNode;
+        h2.to = edge.startNode;
+        h2.edgeIndex = static_cast<int>(edgeIndex);
+        h2.angle = std::atan2(edge.startPos.y - edge.endPos.y,
+                              edge.startPos.x - edge.endPos.x);
+
+        int idx1 = static_cast<int>(halfEdges.size());
+        halfEdges.push_back(h1);
+        int idx2 = static_cast<int>(halfEdges.size());
+        halfEdges.push_back(h2);
+
+        halfEdges[idx1].twin = idx2;
+        halfEdges[idx2].twin = idx1;
+
+        outgoing[edge.startNode].push_back(idx1);
+        outgoing[edge.endNode].push_back(idx2);
+    }
+
+    std::vector<std::unordered_map<int, int>> edgeOrder(graph.nodes.size());
+    for (size_t nodeIndex = 0; nodeIndex < outgoing.size(); ++nodeIndex) {
+        auto& edges = outgoing[nodeIndex];
+        if (edges.empty()) {
+            continue;
+        }
+        std::sort(edges.begin(), edges.end(), [&](int a, int b) {
+            return halfEdges[a].angle < halfEdges[b].angle;
+        });
+        auto& order = edgeOrder[nodeIndex];
+        order.reserve(edges.size());
+        for (size_t i = 0; i < edges.size(); ++i) {
+            order[edges[i]] = static_cast<int>(i);
+        }
+    }
+
+    for (size_t nodeIndex = 0; nodeIndex < outgoing.size(); ++nodeIndex) {
+        const auto& edges = outgoing[nodeIndex];
+        if (edges.empty()) {
+            continue;
+        }
+        for (int edgeIdx : edges) {
+            int twin = halfEdges[edgeIdx].twin;
+            int toNode = halfEdges[edgeIdx].to;
+            const auto& toEdges = outgoing[static_cast<size_t>(toNode)];
+            if (toEdges.empty()) {
+                continue;
+            }
+            const auto& order = edgeOrder[static_cast<size_t>(toNode)];
+            auto it = order.find(twin);
+            if (it == order.end()) {
+                continue;
+            }
+            int pos = it->second;
+            int nextPos = (pos - 1 + static_cast<int>(toEdges.size())) %
+                          static_cast<int>(toEdges.size());
+            halfEdges[edgeIdx].next = toEdges[static_cast<size_t>(nextPos)];
+        }
+    }
+
+    std::vector<Loop> loops;
+    for (size_t i = 0; i < halfEdges.size(); ++i) {
+        if (halfEdges[i].visited) {
+            continue;
+        }
+        int start = static_cast<int>(i);
+        int current = start;
+        Loop loop;
+        size_t guard = 0;
+        bool closed = false;
+        while (!halfEdges[current].visited) {
+            halfEdges[current].visited = true;
+            loop.polygon.push_back(graph.nodes[halfEdges[current].from].position);
+
+            const auto& edge = graph.edges[static_cast<size_t>(halfEdges[current].edgeIndex)];
+            loop.wire.edges.push_back(edge.entityId);
+            loop.wire.forward.push_back(edge.startNode == halfEdges[current].from &&
+                                        edge.endNode == halfEdges[current].to);
+
+            current = halfEdges[current].next;
+            if (current < 0 || current >= static_cast<int>(halfEdges.size())) {
+                break;
+            }
+            if (current == start) {
+                closed = true;
+                break;
+            }
+            if (++guard > halfEdges.size()) {
+                break;
+            }
+        }
+
+        if (!closed || loop.polygon.size() < 3) {
+            continue;
+        }
+        loop.wire.startPoint = graph.nodes[halfEdges[start].from].id;
+        loop.wire.endPoint = loop.wire.startPoint;
+
+        computeLoopPropertiesFromPolygon(loop);
+        if (loop.signedArea <= kMinArea) {
+            continue;
+        }
+        loops.push_back(std::move(loop));
+    }
+
+    return loops;
 }
 
 void LoopDetector::computeLoopProperties(Loop& loop, const sk::Sketch& sketch) const {
@@ -721,6 +1169,10 @@ void LoopDetector::computeLoopProperties(Loop& loop, const sk::Sketch& sketch) c
         }
     }
 
+    computeLoopPropertiesFromPolygon(loop);
+}
+
+void LoopDetector::computeLoopPropertiesFromPolygon(Loop& loop) const {
     if (!loop.polygon.empty()) {
         std::vector<sk::Vec2d> filtered;
         filtered.reserve(loop.polygon.size());

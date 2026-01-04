@@ -348,6 +348,25 @@ void Viewport::paintGL() {
 void Viewport::mousePressEvent(QMouseEvent* event) {
     m_lastMousePos = event->pos();
 
+    if (m_inSketchMode && m_sketchRenderer && event->button() == Qt::LeftButton &&
+        (!m_toolManager || !m_toolManager->hasActiveTool())) {
+        sketch::Vec2d sketchPos = screenToSketch(event->pos());
+        auto region = m_sketchRenderer->pickRegion(sketchPos);
+        bool toggle = (event->modifiers() & Qt::ShiftModifier);
+
+        if (region.has_value()) {
+            if (!toggle) {
+                m_sketchRenderer->clearRegionSelection();
+            }
+            m_sketchRenderer->toggleRegionSelection(*region);
+        } else if (!toggle) {
+            m_sketchRenderer->clearRegionSelection();
+        }
+
+        update();
+        return;
+    }
+
     // Forward to sketch tool if active and left-click (or right-click for cancel)
     if (m_inSketchMode && m_toolManager && m_toolManager->hasActiveTool()) {
         if (event->button() == Qt::LeftButton || event->button() == Qt::RightButton) {
@@ -393,6 +412,13 @@ void Viewport::mouseMoveEvent(QMouseEvent* event) {
     if (m_inSketchMode && m_toolManager && m_toolManager->hasActiveTool()) {
         sketch::Vec2d sketchPos = screenToSketch(event->pos());
         m_toolManager->handleMouseMove(sketchPos);
+        if (m_sketchRenderer) {
+            m_sketchRenderer->clearRegionHover();
+        }
+    } else if (m_inSketchMode && m_sketchRenderer && !m_isOrbiting && !m_isPanning) {
+        sketch::Vec2d sketchPos = screenToSketch(event->pos());
+        m_sketchRenderer->setRegionHover(m_sketchRenderer->pickRegion(sketchPos));
+        update();
     }
 
     if (m_planeSelectionActive && !m_inSketchMode && !m_isOrbiting && !m_isPanning) {
