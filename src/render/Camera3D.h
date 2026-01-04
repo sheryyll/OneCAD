@@ -76,6 +76,7 @@ public:
 
     ProjectionType projectionType() const { return m_projectionType; }
     float orthoScale() const { return m_orthoScale; }
+    void setOrthoScale(float scale) { m_orthoScale = scale; }
 
     // Matrix getters
     QMatrix4x4 viewMatrix() const;

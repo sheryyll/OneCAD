@@ -39,6 +39,7 @@ namespace ui {
         QVector3D target;
         QVector3D up;
         float angle = 0.0f;
+        float orthoScale = 1.0f;  // Preserved visual scale for zoom-free transitions
     };
 
 /**

@@ -848,23 +848,23 @@ void Viewport::animateCamera(const CameraState& targetState) {
     // Connect update slot
     connect(m_cameraAnimation, &QVariantAnimation::valueChanged, this, [this, startState, targetState](const QVariant& value) {
         float t = value.toFloat();
-        
+
         // Linear interpolation for vectors
         // Note: For 'up' vector and camera rotation, SLERP would be mathematically ideal,
         // but LERP + normalize is sufficient for smooth camera transitions in this context.
         QVector3D newPos = startState.position * (1.0f - t) + targetState.position * t;
         QVector3D newTarget = startState.target * (1.0f - t) + targetState.target * t;
         QVector3D newUp = (startState.up * (1.0f - t) + targetState.up * t).normalized();
-        float newAngle = startState.angle * (1.0f - t) + targetState.angle * t;
 
         // Apply to camera
-        // IMPORTANT: We set angle first to let Camera3D handle projection switches,
-        // but then we overwrite position/target/up because we want to follow our 
-        // specific trajectory (aligning to plane) rather than Camera3D's internal "zoom to mouse" logic.
-        m_camera->setCameraAngle(newAngle);
+        // CRITICAL: Do NOT interpolate angle during animation! setCameraAngle() adjusts
+        // position when changing FOV within perspective mode (Camera3D.cpp:239), which
+        // conflicts with our spatial interpolation trajectory. Instead, keep projection
+        // mode constant during animation and switch only at the end.
         m_camera->setPosition(newPos);
         m_camera->setTarget(newTarget);
         m_camera->setUp(newUp);
+        // angle will be set in finished callback
 
         update();
         emit cameraChanged();
@@ -872,12 +872,27 @@ void Viewport::animateCamera(const CameraState& targetState) {
 
     // Cleanup when finished
     connect(m_cameraAnimation, &QVariantAnimation::finished, this, [this, targetState]() {
-        // Ensure final state is exact
-        m_camera->setCameraAngle(targetState.angle);
+        // Set final spatial state first
         m_camera->setPosition(targetState.position);
         m_camera->setTarget(targetState.target);
         m_camera->setUp(targetState.up);
-        
+
+        // Set ortho scale BEFORE changing projection to prevent zoom adjustment
+        // This ensures transitions preserve visual scale exactly
+        m_camera->setOrthoScale(targetState.orthoScale);
+
+        // Now safe to switch projection - won't recalculate distance
+        m_camera->setCameraAngle(targetState.angle);
+
+        // Validation: verify final state matches expected values
+        float finalDist = m_camera->distance();
+        float finalScale = (m_camera->projectionType() == render::Camera3D::ProjectionType::Perspective)
+            ? 2.0f * finalDist * qTan(qDegreesToRadians(m_camera->fov() * 0.5f))
+            : m_camera->orthoScale();
+        qDebug() << "[AnimationFinished] angle=" << m_camera->cameraAngle()
+                 << "distance=" << finalDist << "visualScale=" << finalScale
+                 << "expected=" << targetState.orthoScale;
+
         update();
         emit cameraChanged();
     });
@@ -903,27 +918,42 @@ void Viewport::enterSketchMode(sketch::Sketch* sketch) {
     m_savedCameraUp = m_camera->up();
     m_savedCameraAngle = m_camera->cameraAngle();
 
+    // Calculate current visual scale (world height visible in viewport)
+    // This preserves zoom level when switching projection modes
+    float currentVisualScale;
+    float currentDist = m_camera->distance();
+    if (m_camera->projectionType() == render::Camera3D::ProjectionType::Perspective) {
+        float halfFovRad = qDegreesToRadians(m_camera->fov() * 0.5f);
+        currentVisualScale = 2.0f * currentDist * qTan(halfFovRad);
+        qDebug() << "[EnterSketch] Perspective→Ortho: dist=" << currentDist
+                 << "FOV=" << m_camera->fov() << "visualScale=" << currentVisualScale;
+    } else {
+        currentVisualScale = m_camera->orthoScale();
+        qDebug() << "[EnterSketch] Ortho→Ortho: preserving orthoScale=" << currentVisualScale;
+    }
+
     // Align camera to sketch plane and switch to orthographic
     const auto& plane = sketch->getPlane();
-    
+
     // Use plane vectors directly for camera alignment
     // Normal -> View direction (from camera towards target)
     // Y-Axis -> Camera Up vector
     QVector3D normal(plane.normal.x, plane.normal.y, plane.normal.z);
     QVector3D up(plane.yAxis.x, plane.yAxis.y, plane.yAxis.z);
-    
+
     // Ensure vectors are normalized
     normal.normalize();
     up.normalize();
 
     QVector3D target(plane.origin.x, plane.origin.y, plane.origin.z);
     float dist = m_camera->distance();
-    
+
     CameraState targetState;
     targetState.target = target;
     targetState.up = up;
     targetState.position = target + normal * dist;
     targetState.angle = 0.0f; // 0° = orthographic
+    targetState.orthoScale = currentVisualScale;  // Preserve zoom level
 
     // Animate to sketch view
     animateCamera(targetState);
@@ -983,7 +1013,25 @@ void Viewport::exitSketchMode() {
     savedState.target = m_savedCameraTarget;
     savedState.up = m_savedCameraUp;
     savedState.angle = m_savedCameraAngle;
-    
+
+    // Calculate ortho scale for transition
+    // Edge case: if saved state was already ortho (angle ≈ 0°), preserve current ortho scale
+    if (m_savedCameraAngle < 0.01f) {
+        // Ortho → Ortho: just preserve current ortho scale (no projection change)
+        savedState.orthoScale = m_camera->orthoScale();
+        qDebug() << "[ExitSketch] Ortho→Ortho: preserving orthoScale=" << savedState.orthoScale;
+    } else {
+        // Ortho → Perspective: calculate ortho scale that produces correct distance
+        // Formula: when setCameraAngle switches to perspective, it computes:
+        //   newDistance = orthoScale / (2 * tan(fov/2))
+        // So to get savedDistance, we need: orthoScale = savedDistance * 2 * tan(fov/2)
+        float savedDistance = (m_savedCameraPosition - m_savedCameraTarget).length();
+        float halfFovRad = qDegreesToRadians(m_savedCameraAngle * 0.5f);
+        savedState.orthoScale = 2.0f * savedDistance * qTan(halfFovRad);
+        qDebug() << "[ExitSketch] Ortho→Perspective: savedDist=" << savedDistance
+                 << "savedFOV=" << m_savedCameraAngle << "requiredOrthoScale=" << savedState.orthoScale;
+    }
+
     animateCamera(savedState);
 
     update();
