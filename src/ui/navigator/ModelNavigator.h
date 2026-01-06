@@ -5,6 +5,7 @@
 #include <QWidget>
 #include <QString>
 #include <QColor>
+#include <vector>
 #include <unordered_map>
 #include <string>
 
@@ -12,6 +13,8 @@ class QTreeWidget;
 class QTreeWidgetItem;
 class QFrame;
 class QPropertyAnimation;
+class QLabel;
+class QToolButton;
 
 namespace onecad {
 namespace ui {
@@ -40,6 +43,10 @@ signals:
     void sketchSelected(const QString& sketchId);
     void bodySelected(const QString& bodyId);
     void collapsedChanged(bool collapsed);
+    void renameRequested(const QString& itemId);
+    void isolateRequested(const QString& itemId);
+    void deleteRequested(const QString& itemId);
+    void visibilityToggled(const QString& itemId, bool visible);
 
 public slots:
     // Document model integration
@@ -63,8 +70,32 @@ private:
         QString placeholderText;
     };
 
+    enum class ItemType { Body, Sketch };
+
+    struct ItemEntry {
+        ItemType type;
+        QTreeWidgetItem* item;
+        QWidget* widget;
+        QLabel* iconLabel;
+        QLabel* textLabel;
+        QToolButton* eyeButton;
+        QToolButton* overflowButton;
+        bool visible;
+    };
+
     void setupUi();
+    void setupRoots();
     void createPlaceholderItems();
+    void createPlaceholder(QTreeWidgetItem* root, const QString& text);
+    QWidget* createSectionHeader(const QString& text);
+    QWidget* createItemWidget(ItemEntry& entry, const QString& text, ItemType type, bool visible);
+    void refreshItemWidget(ItemEntry& entry);
+    void setupItemConnections(ItemEntry& entry);
+    void updateSelectionState();
+    ItemEntry* entryForItem(QTreeWidgetItem* item);
+    ItemEntry* entryForId(const std::string& id);
+    void showContextMenu(const QPoint& pos, QTreeWidgetItem* item);
+    void handleVisibilityToggle(ItemEntry& entry);
     void applyCollapseState(bool animate);
     void addItem(ItemCollection& collection, const QString& id);
     void removeItem(ItemCollection& collection, const QString& id);
@@ -77,6 +108,7 @@ private:
     QTreeWidget* m_treeWidget = nullptr;
     QTreeWidgetItem* m_bodiesRoot = nullptr;
     QTreeWidgetItem* m_sketchesRoot = nullptr;
+    std::vector<ItemEntry> m_entries;
     bool m_collapsed = false;
     QPropertyAnimation* m_widthAnimation = nullptr;
     int m_expandedWidth = 260;

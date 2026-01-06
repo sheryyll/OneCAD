@@ -45,38 +45,38 @@ void ContextToolbar::setupUi() {
 
     m_layout->addStretch();
 
-    m_newSketchButton = SidebarToolButton::fromSvgIcon(":/icons/paper_pencil.svg", tr("Create a new sketch (S)"), this);
+    m_newSketchButton = SidebarToolButton::fromSvgIcon(":/icons/ic_sketch.svg", tr("Create a new sketch (S)"), this);
     connect(m_newSketchButton, &SidebarToolButton::clicked, this, &ContextToolbar::newSketchRequested);
 
-    m_extrudeButton = new SidebarToolButton("⬆", tr("Extrude (E)"), this);
+    m_extrudeButton = SidebarToolButton::fromSvgIcon(":/icons/ic_extrude.svg", tr("Extrude (E)"), this);
     m_extrudeButton->setCheckable(true);
     connect(m_extrudeButton, &SidebarToolButton::clicked, this, &ContextToolbar::extrudeRequested);
 
-    m_importButton = new SidebarToolButton("📂", tr("Import STEP file"), this);
+    m_importButton = SidebarToolButton::fromSvgIcon(":/icons/ic_import.svg", tr("Import STEP file"), this);
     connect(m_importButton, &SidebarToolButton::clicked, this, &ContextToolbar::importRequested);
 
-    m_exitSketchButton = new SidebarToolButton("✓", tr("Exit sketch mode (Esc)"), this);
+    m_exitSketchButton = SidebarToolButton::fromSvgIcon(":/icons/ic_close.svg", tr("Exit sketch mode (Esc)"), this);
     connect(m_exitSketchButton, &SidebarToolButton::clicked, this, &ContextToolbar::exitSketchRequested);
 
-    m_lineButton = new SidebarToolButton("📏", tr("Draw line (L)"), this);
+    m_lineButton = SidebarToolButton::fromSvgIcon(":/icons/ic_line.svg", tr("Draw line (L)"), this);
     connect(m_lineButton, &SidebarToolButton::clicked, this, &ContextToolbar::lineToolActivated);
 
-    m_rectangleButton = new SidebarToolButton("⬜", tr("Draw rectangle (R)"), this);
+    m_rectangleButton = SidebarToolButton::fromSvgIcon(":/icons/ic_rectangle.svg", tr("Draw rectangle (R)"), this);
     connect(m_rectangleButton, &SidebarToolButton::clicked, this, &ContextToolbar::rectangleToolActivated);
 
-    m_circleButton = new SidebarToolButton("⭕", tr("Draw circle (C)"), this);
+    m_circleButton = SidebarToolButton::fromSvgIcon(":/icons/ic_circle.svg", tr("Draw circle (C)"), this);
     connect(m_circleButton, &SidebarToolButton::clicked, this, &ContextToolbar::circleToolActivated);
 
-    m_arcButton = new SidebarToolButton("◠", tr("Draw arc (A)"), this);
+    m_arcButton = SidebarToolButton::fromSvgIcon(":/icons/ic_arc.svg", tr("Draw arc (A)"), this);
     connect(m_arcButton, &SidebarToolButton::clicked, this, &ContextToolbar::arcToolActivated);
 
-    m_ellipseButton = new SidebarToolButton("⬭", tr("Draw ellipse (E)"), this);
+    m_ellipseButton = SidebarToolButton::fromSvgIcon(":/icons/ic_ellipse.svg", tr("Draw ellipse (E)"), this);
     connect(m_ellipseButton, &SidebarToolButton::clicked, this, &ContextToolbar::ellipseToolActivated);
 
-    m_trimButton = new SidebarToolButton("✂", tr("Trim entity (T)"), this);
+    m_trimButton = SidebarToolButton::fromSvgIcon(":/icons/ic_trim.svg", tr("Trim entity (T)"), this);
     connect(m_trimButton, &SidebarToolButton::clicked, this, &ContextToolbar::trimToolActivated);
 
-    m_mirrorButton = new SidebarToolButton("⇄", tr("Mirror geometry (M)"), this);
+    m_mirrorButton = SidebarToolButton::fromSvgIcon(":/icons/ic_mirror.svg", tr("Mirror geometry (M)"), this);
     connect(m_mirrorButton, &SidebarToolButton::clicked, this, &ContextToolbar::mirrorToolActivated);
 
     m_layout->addWidget(m_newSketchButton);

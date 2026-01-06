@@ -179,6 +179,84 @@ QString ThemeManager::buildStyleSheet(const ThemeDefinition& theme) {
         }
         QWidget#NavigatorPanel {
             background-color: @navigator-bg@;
+            border: 1px solid @navigator-divider@;
+            border-radius: 14px;
+        }
+        QTreeWidget#NavigatorTree {
+            background-color: transparent;
+            color: @navigator-item-text@;
+            border: none;
+            outline: 0;
+            padding: 0px;
+        }
+        QTreeWidget#NavigatorTree::item {
+            margin: 0px;
+            padding: 0px;
+        }
+        QTreeWidget#NavigatorTree::item:selected,
+        QTreeWidget#NavigatorTree::item:hover,
+        QTreeWidget#NavigatorTree::branch:selected,
+        QTreeWidget#NavigatorTree::branch:hover {
+            background: transparent;
+            color: @navigator-item-text@;
+        }
+        QTreeWidget#NavigatorTree::branch,
+        QTreeWidget#NavigatorTree::branch:has-children,
+        QTreeWidget#NavigatorTree::branch:closed,
+        QTreeWidget#NavigatorTree::branch:open,
+        QTreeWidget#NavigatorTree::branch:has-children:!has-siblings:adjoins-item,
+        QTreeWidget#NavigatorTree::branch:!has-children:!has-siblings:adjoins-item {
+            background: transparent;
+        }
+        QWidget[nav-item="true"] {
+            border-radius: 10px;
+            background-color: transparent;
+            min-height: 40px;
+        }
+        QWidget[nav-item="true"]:hover {
+            background-color: @navigator-item-hover@;
+        }
+        QWidget[nav-item="true"][nav-selected="true"] {
+            background-color: @navigator-item-selected@;
+        }
+        QLabel[nav-item-label="true"] {
+            color: @navigator-item-text@;
+            font-weight: 600;
+            padding-left: 0px;
+            background: transparent;
+        }
+        QWidget[nav-item="true"][nav-selected="true"] QLabel[nav-item-label="true"] {
+            color: @navigator-item-selected-text@;
+        }
+        QLabel[nav-item-icon="true"] {
+            background: transparent;
+        }
+        QLabel[nav-header="true"] {
+            color: @navigator-header-text@;
+            background-color: @navigator-header-bg@;
+            padding: 6px 8px;
+            border-radius: 8px;
+            font-weight: 700;
+            letter-spacing: 0.25px;
+        }
+        QFrame[nav-divider="true"] {
+            background-color: @navigator-divider@;
+            min-height: 1px;
+        }
+        QToolButton[nav-inline="true"] {
+            background-color: transparent;
+            border: none;
+            border-radius: 6px;
+            padding: 0px;
+            icon-size: 18px;
+            min-width: 24px;
+            min-height: 24px;
+        }
+        QToolButton[nav-inline="true"]:hover {
+            background-color: @navigator-inline-hover-bg@;
+        }
+        QToolButton[nav-inline="true"]:pressed {
+            background-color: @navigator-inline-hover-bg@;
         }
         QDockWidget,
         QWidget#ContextToolbar,
@@ -360,6 +438,17 @@ QString ThemeManager::buildStyleSheet(const ThemeDefinition& theme) {
     styleSheet.replace("@widget-bg@", toQssColor(ui.widgetBackground));
     styleSheet.replace("@widget-text@", toQssColor(ui.widgetText));
     styleSheet.replace("@navigator-bg@", toQssColor(ui.navigatorBackground));
+    styleSheet.replace("@navigator-divider@", toQssColor(theme.navigator.divider));
+    styleSheet.replace("@navigator-header-bg@", toQssColor(theme.navigator.headerBackground));
+    styleSheet.replace("@navigator-header-text@", toQssColor(theme.navigator.headerText));
+    styleSheet.replace("@navigator-item-text@", toQssColor(theme.navigator.itemText));
+    styleSheet.replace("@navigator-item-hover@", toQssColor(theme.navigator.itemHoverBackground));
+    styleSheet.replace("@navigator-item-selected@", toQssColor(theme.navigator.itemSelectedBackground));
+    styleSheet.replace("@navigator-item-selected-text@", toQssColor(theme.navigator.itemSelectedText));
+    styleSheet.replace("@navigator-inline-bg@", toQssColor(theme.navigator.inlineButtonBackground));
+    styleSheet.replace("@navigator-inline-hover-bg@", toQssColor(theme.navigator.inlineButtonHoverBackground));
+    styleSheet.replace("@navigator-inline-border@", toQssColor(theme.navigator.inlineButtonBorder));
+    styleSheet.replace("@navigator-inline-hover-border@", toQssColor(theme.navigator.inlineButtonHoverBorder));
     styleSheet.replace("@panel-bg@", toQssColor(ui.panelBackground));
     styleSheet.replace("@inspector-bg@", toQssColor(ui.inspectorBackground));
     styleSheet.replace("@panel-border@", toQssColor(ui.panelBorder));

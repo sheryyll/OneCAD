@@ -77,6 +77,18 @@ struct ThemeStatusColors {
 
 struct ThemeNavigatorColors {
     QColor placeholderText;
+    QColor headerText;
+    QColor headerBackground;
+    QColor divider;
+    QColor itemText;
+    QColor itemIcon;
+    QColor itemHoverBackground;
+    QColor itemSelectedBackground;
+    QColor itemSelectedText;
+    QColor inlineButtonBackground;
+    QColor inlineButtonHoverBackground;
+    QColor inlineButtonBorder;
+    QColor inlineButtonHoverBorder;
 };
 
 struct ThemeViewCubeColors {
