@@ -2,6 +2,7 @@
 add_library(onecad_ui STATIC
     components/SidebarToolButton.cpp
     mainwindow/MainWindow.cpp
+    theme/ThemeConfig.cpp
     theme/ThemeManager.cpp
     viewport/Viewport.cpp
     viewcube/ViewCube.cpp

@@ -1,7 +1,7 @@
 #include "ContextToolbar.h"
 #include "../components/SidebarToolButton.h"
 
-#include <QVBoxLayout>
+#include <QHBoxLayout>
 #include <QSizePolicy>
 
 namespace onecad {
@@ -11,9 +11,9 @@ ContextToolbar::ContextToolbar(QWidget* parent)
     : QWidget(parent) {
     setObjectName("ContextToolbar");
     setAttribute(Qt::WA_StyledBackground, true);
-    setFixedWidth(64);
-    // Use Preferred size policy to allow layout to calculate proper height
-    setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    setFixedHeight(64);
+    // Use Preferred size policy to allow layout to calculate proper width
+    setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     setupUi();
     setContext(Context::Default);
 }
@@ -38,10 +38,10 @@ void ContextToolbar::setExtrudeActive(bool active) {
 }
 
 void ContextToolbar::setupUi() {
-    m_layout = new QVBoxLayout(this);
-    m_layout->setContentsMargins(8, 12, 8, 12);  // Better padding
+    m_layout = new QHBoxLayout(this);
+    m_layout->setContentsMargins(12, 8, 12, 8);  // Better padding
     m_layout->setSpacing(8);  // Clearer visual separation
-    m_layout->setAlignment(Qt::AlignHCenter);  // Center buttons horizontally
+    m_layout->setAlignment(Qt::AlignVCenter);  // Center buttons vertically
 
     m_layout->addStretch();
 

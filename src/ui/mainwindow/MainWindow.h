@@ -39,7 +39,7 @@ class SketchModePanel;
  * 
  * Layout per specification:
  * - Top: Menu bar
- * - Left: Docked navigator with floating action sidebar on the viewport
+ * - Left: Docked navigator with floating action toolbar on the viewport top
  * - Center: 3D Viewport
  * - Right: Property inspector (collapsible dock)
  * - Bottom: Status bar
@@ -69,6 +69,7 @@ private:
     void setupStatusBar();
     void applyTheme();
     void updateDofStatus(core::sketch::Sketch* sketch);
+    void applyDofStatusStyle();
     void positionToolbarOverlay();
     void setupNavigatorOverlayButton();
     void positionNavigatorOverlayButton();
@@ -98,6 +99,9 @@ private:
     QLabel* m_coordStatus = nullptr;
     QAction* m_undoAction = nullptr;
     QAction* m_redoAction = nullptr;
+    bool m_hasCachedDof = false;
+    int m_cachedDof = 0;
+    bool m_cachedOverConstrained = false;
 
     // Camera angle control
     QLabel* m_cameraAngleLabel = nullptr;

@@ -1,8 +1,10 @@
 #ifndef ONECAD_UI_NAVIGATOR_MODELNAVIGATOR_H
 #define ONECAD_UI_NAVIGATOR_MODELNAVIGATOR_H
 
+#include <QMetaObject>
 #include <QWidget>
 #include <QString>
+#include <QColor>
 #include <unordered_map>
 #include <string>
 
@@ -67,6 +69,9 @@ private:
     void addItem(ItemCollection& collection, const QString& id);
     void removeItem(ItemCollection& collection, const QString& id);
     void renameItem(ItemCollection& collection, const QString& id, const QString& newName);
+    void updateTheme();
+    void updatePlaceholderColors();
+    void applyPlaceholderColor(QTreeWidgetItem* item);
 
     QFrame* m_panel = nullptr;
     QTreeWidget* m_treeWidget = nullptr;
@@ -76,6 +81,8 @@ private:
     QPropertyAnimation* m_widthAnimation = nullptr;
     int m_expandedWidth = 260;
     int m_collapsedWidth = 0;
+    QColor m_placeholderColor;
+    QMetaObject::Connection m_themeConnection;
 
     // Map sketch IDs to tree items
     std::unordered_map<std::string, QTreeWidgetItem*> m_sketchItems;

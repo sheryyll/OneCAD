@@ -3,7 +3,7 @@
 
 #include <QWidget>
 
-class QVBoxLayout;
+class QHBoxLayout;
 namespace onecad {
 namespace ui {
 class SidebarToolButton;
@@ -51,7 +51,7 @@ private:
     void updateVisibleButtons();
 
     Context m_currentContext = Context::Default;
-    QVBoxLayout* m_layout = nullptr;
+    QHBoxLayout* m_layout = nullptr;
     SidebarToolButton* m_newSketchButton = nullptr;
     SidebarToolButton* m_extrudeButton = nullptr;
     SidebarToolButton* m_importButton = nullptr;

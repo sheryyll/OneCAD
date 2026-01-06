@@ -33,6 +33,11 @@ public:
     // Appearance
     void setMajorColor(const QColor& color) { m_majorColor = color; }
     void setMinorColor(const QColor& color) { m_minorColor = color; }
+    void setAxisColors(const QColor& xColor, const QColor& yColor, const QColor& zColor) {
+        m_xAxisColor = xColor;
+        m_yAxisColor = yColor;
+        m_zAxisColor = zColor;
+    }
     void setVisible(bool visible) { m_visible = visible; }
     bool isVisible() const { return m_visible; }
     

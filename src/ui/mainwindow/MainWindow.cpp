@@ -54,6 +54,8 @@ MainWindow::MainWindow(QWidget* parent)
     setupViewport();
     setupToolBar();
     setupStatusBar();
+    connect(&ThemeManager::instance(), &ThemeManager::themeChanged,
+            this, &MainWindow::applyDofStatusStyle, Qt::UniqueConnection);
 
     // Connect document signals to navigator
     connect(m_document.get(), &app::Document::sketchAdded,
@@ -78,6 +80,7 @@ MainWindow::~MainWindow() {
 
 void MainWindow::applyTheme() {
     ThemeManager::instance().applyTheme();
+    applyDofStatusStyle();
 }
 
 void MainWindow::updateDofStatus(core::sketch::Sketch* sketch) {
@@ -88,20 +91,34 @@ void MainWindow::updateDofStatus(core::sketch::Sketch* sketch) {
     if (!sketch) {
         m_dofStatus->setText(tr("DOF: —"));
         m_dofStatus->setStyleSheet("");
+        m_hasCachedDof = false;
         return;
     }
 
     int dof = sketch->getDegreesOfFreedom();
     bool overConstrained = sketch->isOverConstrained();
     m_dofStatus->setText(tr("DOF: %1").arg(dof));
+    m_cachedDof = dof;
+    m_cachedOverConstrained = overConstrained;
+    m_hasCachedDof = true;
 
-    if (overConstrained) {
-        m_dofStatus->setStyleSheet("color: red;");
-    } else if (dof == 0) {
-        m_dofStatus->setStyleSheet("color: green;");
-    } else {
-        m_dofStatus->setStyleSheet("color: orange;");
+    applyDofStatusStyle();
+}
+
+void MainWindow::applyDofStatusStyle() {
+    if (!m_dofStatus || !m_hasCachedDof) {
+        return;
     }
+
+    const ThemeStatusColors& status = ThemeManager::instance().currentTheme().status;
+    QColor color = status.dofWarning;
+    if (m_cachedOverConstrained) {
+        color = status.dofError;
+    } else if (m_cachedDof == 0) {
+        color = status.dofOk;
+    }
+
+    m_dofStatus->setStyleSheet(QStringLiteral("color: %1;").arg(toQssColor(color)));
 }
 
 void MainWindow::setupMenuBar() {
@@ -189,35 +206,40 @@ void MainWindow::setupMenuBar() {
 
     // Theme Submenu
     QMenu* themeMenu = viewMenu->addMenu(tr("&Theme"));
-    
-    QAction* lightAction = themeMenu->addAction(tr("&Light"));
-    lightAction->setCheckable(true);
-    connect(lightAction, &QAction::triggered, this, [](){
-        ThemeManager::instance().setThemeMode(ThemeManager::ThemeMode::Light);
-    });
-
-    QAction* darkAction = themeMenu->addAction(tr("&Dark"));
-    darkAction->setCheckable(true);
-    connect(darkAction, &QAction::triggered, this, [](){
-        ThemeManager::instance().setThemeMode(ThemeManager::ThemeMode::Dark);
-    });
+    QActionGroup* themeGroup = new QActionGroup(this);
+    themeGroup->setExclusive(true);
 
     QAction* systemAction = themeMenu->addAction(tr("&System"));
     systemAction->setCheckable(true);
+    themeGroup->addAction(systemAction);
     connect(systemAction, &QAction::triggered, this, [](){
         ThemeManager::instance().setThemeMode(ThemeManager::ThemeMode::System);
     });
 
-    QActionGroup* themeGroup = new QActionGroup(this);
-    themeGroup->addAction(lightAction);
-    themeGroup->addAction(darkAction);
-    themeGroup->addAction(systemAction);
-    
-    // Set initial state
-    auto currentMode = ThemeManager::instance().themeMode();
-    if (currentMode == ThemeManager::ThemeMode::Light) lightAction->setChecked(true);
-    else if (currentMode == ThemeManager::ThemeMode::Dark) darkAction->setChecked(true);
-    else systemAction->setChecked(true);
+    themeMenu->addSeparator();
+
+    QAction* checkedAction = nullptr;
+    const auto& themes = ThemeManager::instance().availableThemes();
+    for (const auto& theme : themes) {
+        QAction* action = themeMenu->addAction(theme.displayName);
+        action->setCheckable(true);
+        action->setData(theme.id);
+        themeGroup->addAction(action);
+        connect(action, &QAction::triggered, this, [themeId = theme.id]() {
+            ThemeManager::instance().setThemeId(themeId);
+        });
+
+        if (ThemeManager::instance().themeMode() == ThemeManager::ThemeMode::Fixed &&
+            ThemeManager::instance().themeId() == theme.id) {
+            checkedAction = action;
+        }
+    }
+
+    if (ThemeManager::instance().themeMode() == ThemeManager::ThemeMode::System || !checkedAction) {
+        systemAction->setChecked(true);
+    } else {
+        checkedAction->setChecked(true);
+    }
 
     viewMenu->addSeparator();
     
@@ -502,10 +524,10 @@ void MainWindow::positionToolbarOverlay() {
     }
 
     const int margin = 20;
-    const int xOffset = margin;
-    const int availableHeight = m_viewport->height();
-    const int toolbarHeight = m_toolbar->height();
-    int yOffset = qMax(margin, (availableHeight - toolbarHeight) / 2);
+    const int availableWidth = m_viewport->width();
+    const int toolbarWidth = m_toolbar->width();
+    int xOffset = qMax(margin, (availableWidth - toolbarWidth) / 2);
+    int yOffset = margin;
 
     m_toolbar->move(xOffset, yOffset);
     m_toolbar->raise();

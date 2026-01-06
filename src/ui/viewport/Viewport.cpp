@@ -65,13 +65,12 @@ struct PlaneSelectionVisual {
     QColor color;
 };
 
-const std::array<PlaneSelectionVisual, 3>& planeSelections() {
-    static const std::array<PlaneSelectionVisual, 3> selections = {{
-        {core::sketch::SketchPlane::XY(), QStringLiteral("XY"), QColor(80, 160, 255, 90)},
-        {core::sketch::SketchPlane::XZ(), QStringLiteral("XZ"), QColor(120, 200, 140, 90)},
-        {core::sketch::SketchPlane::YZ(), QStringLiteral("YZ"), QColor(255, 170, 90, 90)}
+std::array<PlaneSelectionVisual, 3> planeSelections(const ThemeViewportPlaneColors& colors) {
+    return {{
+        {core::sketch::SketchPlane::XY(), QStringLiteral("XY"), colors.xy},
+        {core::sketch::SketchPlane::XZ(), QStringLiteral("XZ"), colors.xz},
+        {core::sketch::SketchPlane::YZ(), QStringLiteral("YZ"), colors.yz}
     }};
-    return selections;
 }
 
 struct PlaneAxes {
@@ -113,6 +112,30 @@ PlaneAxes buildPlaneAxes(const core::sketch::SketchPlane& plane) {
 
     axes.yAxis = QVector3D::crossProduct(axes.normal, axes.xAxis).normalized();
     return axes;
+}
+
+sketch::Vec3d toVec3d(const QColor& color) {
+    return {color.redF(), color.greenF(), color.blueF()};
+}
+
+void applySketchColors(const ThemeSketchColors& colors, sketch::SketchRenderStyle* style) {
+    if (!style) {
+        return;
+    }
+    style->colors.normalGeometry = toVec3d(colors.normalGeometry);
+    style->colors.constructionGeometry = toVec3d(colors.constructionGeometry);
+    style->colors.selectedGeometry = toVec3d(colors.selectedGeometry);
+    style->colors.previewGeometry = toVec3d(colors.previewGeometry);
+    style->colors.errorGeometry = toVec3d(colors.errorGeometry);
+    style->colors.constraintIcon = toVec3d(colors.constraintIcon);
+    style->colors.dimensionText = toVec3d(colors.dimensionText);
+    style->colors.conflictHighlight = toVec3d(colors.conflictHighlight);
+    style->colors.fullyConstrained = toVec3d(colors.fullyConstrained);
+    style->colors.underConstrained = toVec3d(colors.underConstrained);
+    style->colors.overConstrained = toVec3d(colors.overConstrained);
+    style->colors.gridMajor = toVec3d(colors.gridMajor);
+    style->colors.gridMinor = toVec3d(colors.gridMinor);
+    style->colors.regionFill = toVec3d(colors.regionFill);
 }
 
 bool projectToScreen(const QMatrix4x4& viewProjection,
@@ -299,23 +322,24 @@ void Viewport::initializeGL() {
     if (!m_sketchRenderer->initialize()) {
         qWarning() << "Failed to initialize SketchRenderer";
     }
+    updateTheme();
 }
 
 void Viewport::updateTheme() {
-    if (ThemeManager::instance().isDark()) {
-        m_backgroundColor = QColor(45, 45, 48); // #2d2d30
-        if (m_grid) {
-            m_grid->setMajorColor(QColor(80, 80, 80));
-            m_grid->setMinorColor(QColor(50, 50, 50));
-            m_grid->forceUpdate();
-        }
-    } else {
-        m_backgroundColor = QColor(243, 243, 243); // #f3f3f3
-        if (m_grid) {
-            m_grid->setMajorColor(QColor(200, 200, 200));
-            m_grid->setMinorColor(QColor(225, 225, 225));
-            m_grid->forceUpdate();
-        }
+    const ThemeDefinition& theme = ThemeManager::instance().currentTheme();
+    m_backgroundColor = theme.viewport.background;
+    if (m_grid) {
+        m_grid->setMajorColor(theme.viewport.grid.major);
+        m_grid->setMinorColor(theme.viewport.grid.minor);
+        m_grid->setAxisColors(theme.viewport.grid.axisX,
+                              theme.viewport.grid.axisY,
+                              theme.viewport.grid.axisZ);
+        m_grid->forceUpdate();
+    }
+    if (m_sketchRenderer) {
+        sketch::SketchRenderStyle style = m_sketchRenderer->getStyle();
+        applySketchColors(theme.sketch, &style);
+        m_sketchRenderer->setStyle(style);
     }
     update();
 }
@@ -384,13 +408,9 @@ void Viewport::paintGL() {
 
     if (m_bodyRenderer) {
         render::BodyRenderer::RenderStyle style;
-        if (ThemeManager::instance().isDark()) {
-            style.baseColor = QColor(160, 160, 160);
-            style.edgeColor = QColor(210, 210, 210);
-        } else {
-            style.baseColor = QColor(140, 140, 140);
-            style.edgeColor = QColor(80, 80, 80);
-        }
+        const ThemeDefinition& theme = ThemeManager::instance().currentTheme();
+        style.baseColor = theme.viewport.body.base;
+        style.edgeColor = theme.viewport.body.edge;
         style.drawEdges = true;
         style.previewAlpha = 0.35f;
         if (m_inSketchMode) {
@@ -442,10 +462,9 @@ void Viewport::paintGL() {
             QPainter painter(this);
             painter.setRenderHint(QPainter::Antialiasing);
             
-            // Setup font/pen based on theme
-            bool isDark = ThemeManager::instance().isDark();
-            QColor textColor = isDark ? Qt::white : Qt::black;
-            QColor bgColor = isDark ? QColor(0, 0, 0, 180) : QColor(255, 255, 255, 180);
+            const ThemeDefinition& theme = ThemeManager::instance().currentTheme();
+            QColor textColor = theme.viewport.overlay.previewDimensionText;
+            QColor bgColor = theme.viewport.overlay.previewDimensionBackground;
             
             QFont font = painter.font();
             font.setPointSize(10);
@@ -1724,7 +1743,7 @@ bool Viewport::pickPlaneSelection(const QPoint& screenPos, int* outIndex) const 
 
     float bestT = std::numeric_limits<float>::max();
     int bestIndex = -1;
-    const auto& selections = planeSelections();
+    const auto selections = planeSelections(ThemeManager::instance().currentTheme().viewport.planes);
 
     for (int i = 0; i < static_cast<int>(selections.size()); ++i) {
         const auto& selection = selections[i];
@@ -1787,21 +1806,16 @@ void Viewport::drawModelSelectionOverlay(const QMatrix4x4& viewProjection) {
     };
 
     HighlightStyle style;
-    if (ThemeManager::instance().isDark()) {
-        style.faceFillHover = QColor(96, 96, 255, 64);
-        style.faceOutlineHover = QColor(96, 96, 255, 160);
-        style.faceFillSelected = QColor(64, 128, 255, 90);
-        style.faceOutlineSelected = QColor(64, 128, 255, 200);
-    } else {
-        style.faceFillHover = QColor(128, 128, 255, 64);
-        style.faceOutlineHover = QColor(128, 128, 255, 160);
-        style.faceFillSelected = QColor(32, 96, 255, 90);
-        style.faceOutlineSelected = QColor(32, 96, 255, 200);
-    }
-    style.edgeHover = style.faceOutlineHover;
-    style.edgeSelected = style.faceOutlineSelected;
-    style.vertexHover = style.faceOutlineHover;
-    style.vertexSelected = style.faceOutlineSelected;
+    const ThemeViewportSelectionColors& themeSelection =
+        ThemeManager::instance().currentTheme().viewport.selection;
+    style.faceFillHover = themeSelection.faceFillHover;
+    style.faceOutlineHover = themeSelection.faceOutlineHover;
+    style.faceFillSelected = themeSelection.faceFillSelected;
+    style.faceOutlineSelected = themeSelection.faceOutlineSelected;
+    style.edgeHover = themeSelection.edgeHover;
+    style.edgeSelected = themeSelection.edgeSelected;
+    style.vertexHover = themeSelection.vertexHover;
+    style.vertexSelected = themeSelection.vertexSelected;
 
     auto isSameItem = [](const app::selection::SelectionItem& a,
                          const app::selection::SelectionItem& b) {
@@ -1984,9 +1998,9 @@ void Viewport::drawModelToolOverlay(const QMatrix4x4& viewProjection) {
     QPointF left = headBase + QPointF(perp.x() * headWidth, perp.y() * headWidth);
     QPointF right = headBase - QPointF(perp.x() * headWidth, perp.y() * headWidth);
 
-    QColor color = ThemeManager::instance().isDark()
-        ? QColor(96, 160, 255, 230)
-        : QColor(32, 96, 255, 230);
+    const ThemeViewportOverlayColors& overlay =
+        ThemeManager::instance().currentTheme().viewport.overlay;
+    QColor color = overlay.toolIndicator;
 
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing, true);
@@ -2007,12 +2021,8 @@ void Viewport::drawModelToolOverlay(const QMatrix4x4& viewProjection) {
         font.setBold(true);
         painter.setFont(font);
 
-        QColor textColor = ThemeManager::instance().isDark()
-            ? QColor(240, 240, 240)
-            : QColor(20, 20, 20);
-        QColor bgColor = ThemeManager::instance().isDark()
-            ? QColor(0, 0, 0, 180)
-            : QColor(255, 255, 255, 200);
+        QColor textColor = overlay.toolLabelText;
+        QColor bgColor = overlay.toolLabelBackground;
 
         QPointF labelPos = endScreen + QPointF(perp.x() * 10.0f, perp.y() * 10.0f);
         QFontMetrics metrics(font);
@@ -2043,11 +2053,10 @@ void Viewport::drawPlaneSelectionOverlay(const QMatrix4x4& viewProjection) {
     labelFont.setPointSize(labelFont.pointSize() + 1);
     painter.setFont(labelFont);
 
-    const QColor textColor = ThemeManager::instance().isDark()
-        ? QColor(230, 230, 230)
-        : QColor(30, 30, 30);
-
-    const auto& selections = planeSelections();
+    const ThemeViewportPlaneColors& planeColors =
+        ThemeManager::instance().currentTheme().viewport.planes;
+    const QColor textColor = planeColors.labelText;
+    const auto selections = planeSelections(planeColors);
     for (int i = 0; i < static_cast<int>(selections.size()); ++i) {
         const auto& selection = selections[i];
         PlaneAxes axes = buildPlaneAxes(selection.plane);

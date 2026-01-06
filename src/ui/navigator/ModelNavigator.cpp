@@ -1,4 +1,5 @@
 #include "ModelNavigator.h"
+#include "../theme/ThemeManager.h"
 #include <QTreeWidget>
 #include <QVBoxLayout>
 
@@ -15,6 +16,9 @@ namespace ui {
 ModelNavigator::ModelNavigator(QWidget* parent)
     : QWidget(parent) {
     setupUi();
+    m_themeConnection = connect(&ThemeManager::instance(), &ThemeManager::themeChanged,
+                                this, &ModelNavigator::updateTheme, Qt::UniqueConnection);
+    updateTheme();
     createPlaceholderItems();
     applyCollapseState(false);
 }
@@ -66,12 +70,12 @@ void ModelNavigator::createPlaceholderItems() {
     auto* placeholder = new QTreeWidgetItem(m_bodiesRoot);
     placeholder->setText(0, tr("(No bodies)"));
     placeholder->setFlags(placeholder->flags() & ~Qt::ItemIsSelectable);
-    placeholder->setForeground(0, QColor(128, 128, 128));
+    placeholder->setForeground(0, m_placeholderColor);
     
     auto* sketchPlaceholder = new QTreeWidgetItem(m_sketchesRoot);
     sketchPlaceholder->setText(0, tr("(No sketches)"));
     sketchPlaceholder->setFlags(sketchPlaceholder->flags() & ~Qt::ItemIsSelectable);
-    sketchPlaceholder->setForeground(0, QColor(128, 128, 128));
+    sketchPlaceholder->setForeground(0, m_placeholderColor);
 }
 
 void ModelNavigator::addItem(ItemCollection& collection, const QString& id) {
@@ -104,7 +108,29 @@ void ModelNavigator::removeItem(ItemCollection& collection, const QString& id) {
         auto* placeholder = new QTreeWidgetItem(collection.root);
         placeholder->setText(0, collection.placeholderText);
         placeholder->setFlags(placeholder->flags() & ~Qt::ItemIsSelectable);
-        placeholder->setForeground(0, QColor(128, 128, 128));
+        placeholder->setForeground(0, m_placeholderColor);
+    }
+}
+
+void ModelNavigator::updateTheme() {
+    m_placeholderColor = ThemeManager::instance().currentTheme().navigator.placeholderText;
+    updatePlaceholderColors();
+}
+
+void ModelNavigator::updatePlaceholderColors() {
+    applyPlaceholderColor(m_bodiesRoot);
+    applyPlaceholderColor(m_sketchesRoot);
+}
+
+void ModelNavigator::applyPlaceholderColor(QTreeWidgetItem* item) {
+    if (!item) {
+        return;
+    }
+    for (int i = 0; i < item->childCount(); ++i) {
+        QTreeWidgetItem* child = item->child(i);
+        if (child && !(child->flags() & Qt::ItemIsSelectable)) {
+            child->setForeground(0, m_placeholderColor);
+        }
     }
 }
 
