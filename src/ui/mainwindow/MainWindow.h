@@ -63,6 +63,12 @@ private slots:
     void onSketchUpdated();
     void onConstraintRequested(core::sketch::ConstraintType constraintType);
 
+    // Navigator item actions
+    void onDeleteItem(const QString& itemId);
+    void onRenameItem(const QString& itemId);
+    void onVisibilityToggled(const QString& itemId, bool visible);
+    void onIsolateItem(const QString& itemId);
+
 private:
     void setupMenuBar();
     void setupToolBar();

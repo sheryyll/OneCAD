@@ -15,6 +15,7 @@ class QFrame;
 class QPropertyAnimation;
 class QLabel;
 class QToolButton;
+class QLineEdit;
 class QEvent;
 
 namespace onecad {
@@ -45,6 +46,7 @@ signals:
     void bodySelected(const QString& bodyId);
     void collapsedChanged(bool collapsed);
     void renameRequested(const QString& itemId);
+    void renameCommitted(const QString& itemId, const QString& newName);
     void isolateRequested(const QString& itemId);
     void deleteRequested(const QString& itemId);
     void visibilityToggled(const QString& itemId, bool visible);
@@ -57,6 +59,13 @@ public slots:
     void onBodyAdded(const QString& id);
     void onBodyRemoved(const QString& id);
     void onBodyRenamed(const QString& id, const QString& newName);
+
+    // Visibility sync from Document
+    void onBodyVisibilityChanged(const QString& id, bool visible);
+    void onSketchVisibilityChanged(const QString& id, bool visible);
+
+    // Inline editing
+    void startInlineEdit(const QString& itemId);
 
 private slots:
     void onItemClicked(QTreeWidgetItem* item, int column);
@@ -102,6 +111,8 @@ private:
     void handleVisibilityToggle(ItemEntry& entry);
     void applyCollapseState(bool animate);
     void addItem(ItemCollection& collection, const QString& id);
+    void finishInlineEdit();
+    void cancelInlineEdit();
     void removeItem(ItemCollection& collection, const QString& id);
     void renameItem(ItemCollection& collection, const QString& id, const QString& newName);
     void updateTheme();
@@ -127,6 +138,11 @@ private:
     // Counter for unique sketch naming
     unsigned int m_sketchCounter = 0;
     unsigned int m_bodyCounter = 0;
+
+    // Inline editing state
+    QLineEdit* m_inlineEditor = nullptr;
+    ItemEntry* m_editingEntry = nullptr;
+    QString m_editingItemId;
 };
 
 } // namespace ui

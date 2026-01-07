@@ -5,8 +5,10 @@
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMenu>
 #include <QMouseEvent>
+#include <QKeyEvent>
 #include <QPainter>
 #include <QPropertyAnimation>
 #include <QSizePolicy>
@@ -456,6 +458,15 @@ void ModelNavigator::onItemClicked(QTreeWidgetItem* item, int column) {
 }
 
 bool ModelNavigator::eventFilter(QObject* obj, QEvent* event) {
+    // Handle inline editor escape key
+    if (obj == m_inlineEditor && event->type() == QEvent::KeyPress) {
+        auto* keyEvent = static_cast<QKeyEvent*>(event);
+        if (keyEvent->key() == Qt::Key_Escape) {
+            cancelInlineEdit();
+            return true;
+        }
+    }
+
     if (obj == m_treeWidget->viewport() && event->type() == QEvent::MouseButtonPress) {
         auto* mouseEvent = static_cast<QMouseEvent*>(event);
         if (mouseEvent->button() == Qt::LeftButton) {
@@ -520,6 +531,113 @@ void ModelNavigator::onBodyRenamed(const QString& id, const QString& newName) {
     ItemCollection collection{m_bodyItems, m_bodyCounter, m_bodiesRoot,
                               QStringLiteral("Body %1"), tr("(No bodies)")};
     renameItem(collection, id, newName);
+}
+
+void ModelNavigator::onBodyVisibilityChanged(const QString& id, bool visible) {
+    std::string stdId = id.toStdString();
+    auto it = m_bodyItems.find(stdId);
+    if (it != m_bodyItems.end()) {
+        if (ItemEntry* entry = entryForItem(it->second)) {
+            entry->visible = visible;
+            refreshItemWidget(*entry);
+        }
+    }
+}
+
+void ModelNavigator::onSketchVisibilityChanged(const QString& id, bool visible) {
+    std::string stdId = id.toStdString();
+    auto it = m_sketchItems.find(stdId);
+    if (it != m_sketchItems.end()) {
+        if (ItemEntry* entry = entryForItem(it->second)) {
+            entry->visible = visible;
+            refreshItemWidget(*entry);
+        }
+    }
+}
+
+void ModelNavigator::startInlineEdit(const QString& itemId) {
+    // Cancel any existing edit
+    if (m_inlineEditor) {
+        cancelInlineEdit();
+    }
+
+    std::string stdId = itemId.toStdString();
+    ItemEntry* entry = entryForId(stdId);
+    if (!entry || !entry->textLabel) {
+        return;
+    }
+
+    m_editingEntry = entry;
+    m_editingItemId = itemId;
+
+    // Create inline editor positioned over the text label
+    m_inlineEditor = new QLineEdit(entry->widget);
+    m_inlineEditor->setText(entry->textLabel->text());
+    m_inlineEditor->selectAll();
+
+    // Position over text label
+    QRect labelRect = entry->textLabel->geometry();
+    m_inlineEditor->setGeometry(labelRect);
+
+    // Style to match
+    const auto& theme = ThemeManager::instance().currentTheme();
+    m_inlineEditor->setStyleSheet(QStringLiteral(
+        "QLineEdit { background: %1; color: %2; border: 1px solid %3; padding: 2px; }")
+        .arg(theme.navigator.itemHoverBackground.name(QColor::HexArgb))
+        .arg(theme.navigator.itemText.name(QColor::HexArgb))
+        .arg(theme.navigator.itemSelectedBackground.name(QColor::HexArgb)));
+
+    // Hide the text label
+    entry->textLabel->hide();
+
+    m_inlineEditor->show();
+    m_inlineEditor->setFocus();
+
+    // Connect signals
+    connect(m_inlineEditor, &QLineEdit::editingFinished, this, &ModelNavigator::finishInlineEdit);
+    connect(m_inlineEditor, &QLineEdit::returnPressed, this, &ModelNavigator::finishInlineEdit);
+
+    // Handle escape key via event filter (editing finished doesn't capture escape)
+    m_inlineEditor->installEventFilter(this);
+}
+
+void ModelNavigator::finishInlineEdit() {
+    if (!m_inlineEditor || !m_editingEntry) {
+        return;
+    }
+
+    QString newName = m_inlineEditor->text().trimmed();
+    QString itemId = m_editingItemId;
+    QString oldName = m_editingEntry->textLabel->text();
+
+    // Restore text label
+    m_editingEntry->textLabel->show();
+
+    // Clean up editor
+    m_inlineEditor->deleteLater();
+    m_inlineEditor = nullptr;
+    m_editingEntry = nullptr;
+    m_editingItemId.clear();
+
+    // Emit rename signal if name changed and not empty
+    if (!newName.isEmpty() && newName != oldName) {
+        emit renameCommitted(itemId, newName);
+    }
+}
+
+void ModelNavigator::cancelInlineEdit() {
+    if (!m_inlineEditor || !m_editingEntry) {
+        return;
+    }
+
+    // Restore text label
+    m_editingEntry->textLabel->show();
+
+    // Clean up editor
+    m_inlineEditor->deleteLater();
+    m_inlineEditor = nullptr;
+    m_editingEntry = nullptr;
+    m_editingItemId.clear();
 }
 
 } // namespace ui

@@ -48,6 +48,14 @@ public:
     std::string addSketch(std::unique_ptr<core::sketch::Sketch> sketch);
 
     /**
+     * @brief Add sketch with explicit ID (for undo/redo)
+     * @return true if added successfully
+     */
+    bool addSketchWithId(const std::string& id,
+                         std::unique_ptr<core::sketch::Sketch> sketch,
+                         const std::string& name = {});
+
+    /**
      * @brief Get sketch by ID
      * @return Pointer to sketch or nullptr if not found
      */
@@ -102,6 +110,18 @@ public:
     void addOperation(const OperationRecord& record);
     const std::vector<OperationRecord>& operations() const { return operations_; }
 
+    // Visibility management
+    bool isBodyVisible(const std::string& id) const;
+    void setBodyVisible(const std::string& id, bool visible);
+    bool isSketchVisible(const std::string& id) const;
+    void setSketchVisible(const std::string& id, bool visible);
+
+    // Isolation management
+    void isolateItem(const std::string& id);
+    void clearIsolation();
+    bool isIsolationActive() const { return !isolatedItemId_.empty(); }
+    std::string isolatedItemId() const { return isolatedItemId_; }
+
     render::SceneMeshStore& meshStore() { return *sceneMeshStore_; }
     const render::SceneMeshStore& meshStore() const { return *sceneMeshStore_; }
     kernel::elementmap::ElementMap& elementMap() { return elementMap_; }
@@ -115,13 +135,16 @@ signals:
     void bodyRemoved(const QString& id);
     void bodyRenamed(const QString& id, const QString& newName);
     void bodyUpdated(const QString& id);
+    void bodyVisibilityChanged(const QString& id, bool visible);
+    void sketchVisibilityChanged(const QString& id, bool visible);
+    void isolationChanged();
     void modifiedChanged(bool modified);
     void documentCleared();
 
 private:
     struct BodyEntry {
-        // Placeholder for future metadata (material, visibility, transform).
         TopoDS_Shape shape;
+        bool visible = true;
     };
 
     void registerBodyElements(const std::string& bodyId, const TopoDS_Shape& shape);
@@ -130,8 +153,14 @@ private:
 
     std::unordered_map<std::string, std::unique_ptr<core::sketch::Sketch>> sketches_;
     std::unordered_map<std::string, std::string> sketchNames_;  // id -> display name
+    std::unordered_map<std::string, bool> sketchVisibility_;    // id -> visible
     std::unordered_map<std::string, BodyEntry> bodies_;
     std::unordered_map<std::string, std::string> bodyNames_;  // id -> display name
+
+    // Isolation state (not persisted)
+    std::string isolatedItemId_;
+    std::unordered_map<std::string, bool> preIsolationBodyVisibility_;
+    std::unordered_map<std::string, bool> preIsolationSketchVisibility_;
     std::vector<OperationRecord> operations_;
     kernel::elementmap::ElementMap elementMap_;
     std::unique_ptr<render::SceneMeshStore> sceneMeshStore_;

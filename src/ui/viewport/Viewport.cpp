@@ -2365,6 +2365,14 @@ void Viewport::setDocument(app::Document* document) {
             syncModelMeshes();
             update();
         });
+        connect(m_document, &app::Document::bodyVisibilityChanged, this, [this]() {
+            syncModelMeshes();
+            update();
+        });
+        connect(m_document, &app::Document::isolationChanged, this, [this]() {
+            syncModelMeshes();
+            update();
+        });
     }
 
     updateModelSelectionFilter();
@@ -2444,12 +2452,22 @@ void Viewport::syncModelMeshes() {
         return;
     }
     const auto& store = m_document->meshStore();
+
+    // Build filtered list of visible body meshes
+    std::vector<render::SceneMeshStore::Mesh> visibleMeshes;
+    store.forEachMesh([&](const render::SceneMeshStore::Mesh& mesh) {
+        if (m_document->isBodyVisible(mesh.bodyId)) {
+            visibleMeshes.push_back(mesh);
+        }
+    });
+
     if (m_bodyRenderer) {
-        m_bodyRenderer->setMeshes(store);
+        m_bodyRenderer->setMeshes(visibleMeshes);
     }
 
+    // Build pick meshes from visible bodies only
     std::vector<selection::ModelPickerAdapter::Mesh> pickMeshes;
-    store.forEachMesh([&](const render::SceneMeshStore::Mesh& mesh) {
+    for (const auto& mesh : visibleMeshes) {
         selection::ModelPickerAdapter::Mesh pickMesh;
         pickMesh.bodyId = mesh.bodyId;
         pickMesh.vertices.reserve(mesh.vertices.size());
@@ -2489,7 +2507,7 @@ void Viewport::syncModelMeshes() {
         }
         pickMesh.faceGroupByFaceId = mesh.faceGroupByFaceId;
         pickMeshes.push_back(std::move(pickMesh));
-    });
+    }
     setModelPickMeshes(std::move(pickMeshes));
 }
 

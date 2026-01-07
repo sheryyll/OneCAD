@@ -6,6 +6,11 @@
 #include "../../core/sketch/Sketch.h"
 #include "../../core/sketch/tools/SketchToolManager.h"
 #include "../../app/commands/CommandProcessor.h"
+#include "../../app/commands/DeleteBodyCommand.h"
+#include "../../app/commands/DeleteSketchCommand.h"
+#include "../../app/commands/RenameBodyCommand.h"
+#include "../../app/commands/RenameSketchCommand.h"
+#include "../../app/commands/ToggleVisibilityCommand.h"
 #include "../../app/document/Document.h"
 #include "../navigator/ModelNavigator.h"
 #include "../toolbar/ContextToolbar.h"
@@ -71,6 +76,36 @@ MainWindow::MainWindow(QWidget* parent)
             m_navigator, &ModelNavigator::onBodyRemoved);
     connect(m_document.get(), &app::Document::bodyRenamed,
             m_navigator, &ModelNavigator::onBodyRenamed);
+
+    // Connect navigator item actions
+    connect(m_navigator, &ModelNavigator::deleteRequested,
+            this, &MainWindow::onDeleteItem);
+    connect(m_navigator, &ModelNavigator::renameRequested,
+            this, &MainWindow::onRenameItem);
+    connect(m_navigator, &ModelNavigator::renameCommitted, this,
+            [this](const QString& itemId, const QString& newName) {
+                std::string id = itemId.toStdString();
+                bool isBody = m_document->getBodyShape(id) != nullptr;
+                if (isBody) {
+                    auto cmd = std::make_unique<app::commands::RenameBodyCommand>(
+                        m_document.get(), id, newName.toStdString());
+                    m_commandProcessor->execute(std::move(cmd));
+                } else {
+                    auto cmd = std::make_unique<app::commands::RenameSketchCommand>(
+                        m_document.get(), id, newName.toStdString());
+                    m_commandProcessor->execute(std::move(cmd));
+                }
+            });
+    connect(m_navigator, &ModelNavigator::visibilityToggled,
+            this, &MainWindow::onVisibilityToggled);
+    connect(m_navigator, &ModelNavigator::isolateRequested,
+            this, &MainWindow::onIsolateItem);
+
+    // Connect visibility changes from document back to navigator
+    connect(m_document.get(), &app::Document::bodyVisibilityChanged,
+            m_navigator, &ModelNavigator::onBodyVisibilityChanged);
+    connect(m_document.get(), &app::Document::sketchVisibilityChanged,
+            m_navigator, &ModelNavigator::onSketchVisibilityChanged);
 
     loadSettings();
 }
@@ -1044,6 +1079,78 @@ void MainWindow::onConstraintRequested(core::sketch::ConstraintType constraintTy
     } else {
         m_toolStatus->setText(tr("Cannot apply constraint to selection"));
     }
+}
+
+void MainWindow::onDeleteItem(const QString& itemId) {
+    std::string id = itemId.toStdString();
+
+    // Determine item type
+    bool isBody = m_document->getBodyShape(id) != nullptr;
+    bool isSketch = m_document->getSketch(id) != nullptr;
+
+    if (!isBody && !isSketch) {
+        return;
+    }
+
+    // Get item name for confirmation
+    QString itemName = isBody
+        ? QString::fromStdString(m_document->getBodyName(id))
+        : QString::fromStdString(m_document->getSketchName(id));
+
+    // Always show confirmation dialog
+    if (QMessageBox::question(this, tr("Confirm Delete"),
+            tr("Delete '%1'?").arg(itemName),
+            QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes) {
+        return;
+    }
+
+    // If deleting active sketch, exit sketch mode first
+    if (isSketch && m_activeSketchId == id) {
+        onExitSketch();
+    }
+
+    // Create and execute command
+    if (isBody) {
+        auto cmd = std::make_unique<app::commands::DeleteBodyCommand>(m_document.get(), id);
+        m_commandProcessor->execute(std::move(cmd));
+    } else {
+        auto cmd = std::make_unique<app::commands::DeleteSketchCommand>(m_document.get(), id);
+        m_commandProcessor->execute(std::move(cmd));
+    }
+
+    m_viewport->update();
+}
+
+void MainWindow::onRenameItem(const QString& itemId) {
+    // Trigger inline edit in navigator
+    m_navigator->startInlineEdit(itemId);
+}
+
+void MainWindow::onVisibilityToggled(const QString& itemId, bool visible) {
+    std::string id = itemId.toStdString();
+    bool isBody = m_document->getBodyShape(id) != nullptr;
+
+    auto cmd = std::make_unique<app::commands::ToggleVisibilityCommand>(
+        m_document.get(), id,
+        isBody ? app::commands::ToggleVisibilityCommand::ItemType::Body
+               : app::commands::ToggleVisibilityCommand::ItemType::Sketch,
+        visible);
+    m_commandProcessor->execute(std::move(cmd));
+
+    m_viewport->update();
+}
+
+void MainWindow::onIsolateItem(const QString& itemId) {
+    std::string id = itemId.toStdString();
+
+    // Toggle isolation
+    if (m_document->isolatedItemId() == id) {
+        m_document->clearIsolation();
+    } else {
+        m_document->isolateItem(id);
+    }
+
+    m_viewport->update();
 }
 
 void MainWindow::loadSettings() {

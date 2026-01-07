@@ -33,12 +33,37 @@ std::string Document::addSketch(std::unique_ptr<core::sketch::Sketch> sketch) {
     // Generate default name
     std::string name = "Sketch " + std::to_string(nextSketchNumber_++);
     sketchNames_[id] = name;
+    sketchVisibility_[id] = true;
 
     sketches_[id] = std::move(sketch);
     setModified(true);
 
     emit sketchAdded(QString::fromStdString(id));
     return id;
+}
+
+bool Document::addSketchWithId(const std::string& id,
+                                std::unique_ptr<core::sketch::Sketch> sketch,
+                                const std::string& name) {
+    if (!sketch || id.empty()) {
+        return false;
+    }
+    if (sketches_.find(id) != sketches_.end()) {
+        return false;  // ID already exists
+    }
+
+    std::string finalName = name;
+    if (finalName.empty()) {
+        finalName = "Sketch " + std::to_string(nextSketchNumber_++);
+    }
+
+    sketchNames_[id] = finalName;
+    sketchVisibility_[id] = true;
+    sketches_[id] = std::move(sketch);
+    setModified(true);
+
+    emit sketchAdded(QString::fromStdString(id));
+    return true;
 }
 
 core::sketch::Sketch* Document::getSketch(const std::string& id) {
@@ -74,6 +99,7 @@ bool Document::removeSketch(const std::string& id) {
 
     sketches_.erase(it);
     sketchNames_.erase(id);
+    sketchVisibility_.erase(id);
     setModified(true);
 
     emit sketchRemoved(QString::fromStdString(id));
@@ -120,6 +146,7 @@ void Document::setModified(bool modified) {
 void Document::clear() {
     sketches_.clear();
     sketchNames_.clear();
+    sketchVisibility_.clear();
     bodies_.clear();
     bodyNames_.clear();
     operations_.clear();
@@ -127,6 +154,11 @@ void Document::clear() {
     if (sceneMeshStore_) {
         sceneMeshStore_->clear();
     }
+    // Clear isolation state
+    isolatedItemId_.clear();
+    preIsolationBodyVisibility_.clear();
+    preIsolationSketchVisibility_.clear();
+
     nextSketchNumber_ = 1;
     nextBodyNumber_ = 1;
     setModified(false);
@@ -304,6 +336,124 @@ void Document::setBodyName(const std::string& id, const std::string& name) {
 void Document::addOperation(const OperationRecord& record) {
     operations_.push_back(record);
     setModified(true);
+}
+
+// Visibility management
+
+bool Document::isBodyVisible(const std::string& id) const {
+    auto it = bodies_.find(id);
+    if (it == bodies_.end()) {
+        return false;
+    }
+    return it->second.visible;
+}
+
+void Document::setBodyVisible(const std::string& id, bool visible) {
+    auto it = bodies_.find(id);
+    if (it == bodies_.end()) {
+        return;
+    }
+    if (it->second.visible == visible) {
+        return;
+    }
+    it->second.visible = visible;
+    emit bodyVisibilityChanged(QString::fromStdString(id), visible);
+}
+
+bool Document::isSketchVisible(const std::string& id) const {
+    auto it = sketchVisibility_.find(id);
+    if (it == sketchVisibility_.end()) {
+        return true;  // Default visible if not found
+    }
+    return it->second;
+}
+
+void Document::setSketchVisible(const std::string& id, bool visible) {
+    if (sketches_.find(id) == sketches_.end()) {
+        return;
+    }
+    auto it = sketchVisibility_.find(id);
+    if (it != sketchVisibility_.end() && it->second == visible) {
+        return;
+    }
+    sketchVisibility_[id] = visible;
+    emit sketchVisibilityChanged(QString::fromStdString(id), visible);
+}
+
+// Isolation management
+
+void Document::isolateItem(const std::string& id) {
+    // Check if item exists
+    bool isBody = bodies_.find(id) != bodies_.end();
+    bool isSketch = sketches_.find(id) != sketches_.end();
+    if (!isBody && !isSketch) {
+        return;
+    }
+
+    // If same item is already isolated, toggle off
+    if (isolatedItemId_ == id) {
+        clearIsolation();
+        return;
+    }
+
+    // Save current visibility state before isolation
+    preIsolationBodyVisibility_.clear();
+    preIsolationSketchVisibility_.clear();
+
+    for (const auto& [bodyId, entry] : bodies_) {
+        preIsolationBodyVisibility_[bodyId] = entry.visible;
+    }
+    for (const auto& [sketchId, visible] : sketchVisibility_) {
+        preIsolationSketchVisibility_[sketchId] = visible;
+    }
+
+    // Hide all items except the isolated one
+    for (auto& [bodyId, entry] : bodies_) {
+        bool shouldBeVisible = (bodyId == id);
+        if (entry.visible != shouldBeVisible) {
+            entry.visible = shouldBeVisible;
+            emit bodyVisibilityChanged(QString::fromStdString(bodyId), shouldBeVisible);
+        }
+    }
+    for (auto& [sketchId, visible] : sketchVisibility_) {
+        bool shouldBeVisible = (sketchId == id);
+        if (visible != shouldBeVisible) {
+            visible = shouldBeVisible;
+            emit sketchVisibilityChanged(QString::fromStdString(sketchId), shouldBeVisible);
+        }
+    }
+
+    isolatedItemId_ = id;
+    emit isolationChanged();
+}
+
+void Document::clearIsolation() {
+    if (isolatedItemId_.empty()) {
+        return;
+    }
+
+    // Restore pre-isolation visibility
+    for (auto& [bodyId, entry] : bodies_) {
+        auto it = preIsolationBodyVisibility_.find(bodyId);
+        bool prevVisible = (it != preIsolationBodyVisibility_.end()) ? it->second : true;
+        if (entry.visible != prevVisible) {
+            entry.visible = prevVisible;
+            emit bodyVisibilityChanged(QString::fromStdString(bodyId), prevVisible);
+        }
+    }
+    for (auto& [sketchId, visible] : sketchVisibility_) {
+        auto it = preIsolationSketchVisibility_.find(sketchId);
+        bool prevVisible = (it != preIsolationSketchVisibility_.end()) ? it->second : true;
+        if (visible != prevVisible) {
+            visible = prevVisible;
+            emit sketchVisibilityChanged(QString::fromStdString(sketchId), prevVisible);
+        }
+    }
+
+    isolatedItemId_.clear();
+    preIsolationBodyVisibility_.clear();
+    preIsolationSketchVisibility_.clear();
+    emit isolationChanged();
 }
 
 void Document::registerBodyElements(const std::string& bodyId, const TopoDS_Shape& shape) {
