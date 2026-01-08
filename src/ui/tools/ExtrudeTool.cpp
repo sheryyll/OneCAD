@@ -163,20 +163,21 @@ bool ExtrudeTool::handleMouseRelease(const QPoint& screenPos, Qt::MouseButton bu
                 const TopoDS_Shape* targetShape = document_->getBodyShape(targetId);
                 if (targetShape) {
                     finalShape = core::modeling::BooleanOperation::perform(toolShape, *targetShape, booleanMode_);
-                    
-                    if (commandProcessor_) {
-                        auto command = std::make_unique<app::commands::ModifyBodyCommand>(document_, targetId, finalShape);
-                        if (commandProcessor_->execute(std::move(command))) {
+                    if (!finalShape.IsNull()) {
+                        if (commandProcessor_) {
+                            auto command = std::make_unique<app::commands::ModifyBodyCommand>(document_, targetId, finalShape);
+                            if (commandProcessor_->execute(std::move(command))) {
+                                resultBodyId = targetId;
+                                success = true;
+                            }
+                        } else {
+                            // Direct modification
+                            std::string name = document_->getBodyName(targetId);
+                            document_->removeBody(targetId);
+                            document_->addBodyWithId(targetId, finalShape, name);
                             resultBodyId = targetId;
                             success = true;
                         }
-                    } else {
-                        // Direct modification
-                        std::string name = document_->getBodyName(targetId);
-                        document_->removeBody(targetId);
-                        document_->addBodyWithId(targetId, finalShape, name);
-                        resultBodyId = targetId;
-                        success = true;
                     }
                 }
             } else {

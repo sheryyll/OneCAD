@@ -62,6 +62,7 @@
         <file alias="ic_boolean_subtract.svg">icons/ic_boolean_subtract.svg</file>
         <file alias="ic_boolean_intersect.svg">icons/ic_boolean_intersect.svg</file>
         <file alias="ic_shell.svg">icons/ic_shell.svg</file>
+        <file alias="ic_pushpull.svg">icons/ic_pushpull.svg</file>
         <file alias="ic_fillet_solid.svg">icons/ic_fillet_solid.svg</file>
         <file alias="ic_chamfer_solid.svg">icons/ic_chamfer_solid.svg</file>
         <file alias="ic_draft.svg">icons/ic_draft.svg</file>

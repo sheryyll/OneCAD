@@ -186,18 +186,20 @@ bool RevolveTool::handleMouseRelease(const QPoint& screenPos, Qt::MouseButton bu
             const TopoDS_Shape* targetShape = document_->getBodyShape(targetBodyId_);
             if (targetShape) {
                 TopoDS_Shape finalShape = core::modeling::BooleanOperation::perform(toolShape, *targetShape, booleanMode_);
-                if (commandProcessor_) {
-                    auto command = std::make_unique<app::commands::ModifyBodyCommand>(document_, targetBodyId_, finalShape);
-                    if (commandProcessor_->execute(std::move(command))) {
+                if (!finalShape.IsNull()) {
+                    if (commandProcessor_) {
+                        auto command = std::make_unique<app::commands::ModifyBodyCommand>(document_, targetBodyId_, finalShape);
+                        if (commandProcessor_->execute(std::move(command))) {
+                            resultBodyId = targetBodyId_;
+                            success = true;
+                        }
+                    } else {
+                        std::string name = document_->getBodyName(targetBodyId_);
+                        document_->removeBody(targetBodyId_);
+                        document_->addBodyWithId(targetBodyId_, finalShape, name);
                         resultBodyId = targetBodyId_;
                         success = true;
                     }
-                } else {
-                    std::string name = document_->getBodyName(targetBodyId_);
-                    document_->removeBody(targetBodyId_);
-                    document_->addBodyWithId(targetBodyId_, finalShape, name);
-                    resultBodyId = targetBodyId_;
-                    success = true;
                 }
             }
         }

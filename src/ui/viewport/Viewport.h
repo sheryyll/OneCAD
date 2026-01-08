@@ -113,6 +113,8 @@ public:
     void setModelPickMeshes(std::vector<selection::ModelPickerAdapter::Mesh>&& meshes);
     void setModelPreviewMeshes(const std::vector<render::SceneMeshStore::Mesh>& meshes);
     void clearModelPreviewMeshes();
+    void setPreviewHiddenBody(const std::string& bodyId);
+    void clearPreviewHiddenBody();
 
 signals:
     void mousePositionChanged(double x, double y, double z);
@@ -123,7 +125,11 @@ signals:
     void sketchUpdated();  // Emitted when geometry/constraints change
     void extrudeToolActiveChanged(bool active);
     void revolveToolActiveChanged(bool active);
+    void filletToolActiveChanged(bool active);
+    void pushPullToolActiveChanged(bool active);
+    void shellToolActiveChanged(bool active);
     void debugTogglesChanged(bool normals, bool depth, bool wireframe, bool disableGamma, bool matcap);
+    void selectionContextChanged(int contextKind);  // 0=Default, 1=Edge, 2=Face, 3=Body
 
 public slots:
     void beginPlaneSelection();
@@ -145,6 +151,9 @@ public slots:
     void setReferenceSketch(const QString& sketchId);
     bool activateExtrudeTool();
     bool activateRevolveTool();
+    bool activateFilletTool();
+    bool activatePushPullTool();
+    bool activateShellTool();
     void setDebugToggles(bool normals, bool depth, bool wireframe, bool disableGamma, bool matcap);
     void setRenderLightRig(const QVector3D& keyDir,
                            const QVector3D& fillDir,
@@ -226,6 +235,9 @@ private:
     void animateCamera(const CameraState& targetState);
     void setExtrudeToolActive(bool active);
     void setRevolveToolActive(bool active);
+    void setFilletToolActive(bool active);
+    void setPushPullToolActive(bool active);
+    void setShellToolActive(bool active);
 
     std::unique_ptr<render::Camera3D> m_camera;
     std::unique_ptr<render::Grid3D> m_grid;
@@ -236,6 +248,9 @@ private:
     app::commands::CommandProcessor* m_commandProcessor = nullptr;
     bool m_extrudeToolActive = false;
     bool m_revolveToolActive = false;
+    bool m_filletToolActive = false;
+    bool m_pushPullToolActive = false;
+    bool m_shellToolActive = false;
     ViewCube* m_viewCube = nullptr;
     DimensionEditor* m_dimensionEditor = nullptr;
     QVariantAnimation* m_cameraAnimation = nullptr;
@@ -243,9 +258,11 @@ private:
     selection::DeepSelectPopup* m_deepSelectPopup = nullptr;
     std::unique_ptr<selection::SketchPickerAdapter> m_sketchPicker;
     std::unique_ptr<selection::ModelPickerAdapter> m_modelPicker;
+    std::string m_previewHiddenBodyId;
     std::vector<app::selection::SelectionItem> m_pendingCandidates;
     app::selection::ClickModifiers m_pendingModifiers;
     QPoint m_pendingClickPos;
+    bool m_pendingShellFaceToggle = false;
 
     // Sketch mode
     core::sketch::Sketch* m_activeSketch = nullptr;

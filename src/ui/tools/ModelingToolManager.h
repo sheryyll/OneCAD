@@ -10,6 +10,7 @@
 #include <QObject>
 #include <memory>
 #include <optional>
+#include <string>
 
 namespace onecad::app {
 class Document;
@@ -26,6 +27,9 @@ namespace onecad::ui::tools {
 
 class ExtrudeTool;
 class RevolveTool;
+class FilletChamferTool;
+class PushPullTool;
+class ShellTool;
 
 class ModelingToolManager : public QObject {
     Q_OBJECT
@@ -42,10 +46,18 @@ public:
 
     void activateExtrude(const app::selection::SelectionItem& selection);
     void activateRevolve(const app::selection::SelectionItem& selection);
+    void activateFillet(const app::selection::SelectionItem& selection);
+    void activatePushPull(const app::selection::SelectionItem& selection);
+    void activateShell(const app::selection::SelectionItem& selection);
     void cancelActiveTool();
 
     // Pass selection changes to active tool (needed for Revolve's Axis selection)
     void onSelectionChanged(const std::vector<app::selection::SelectionItem>& selection);
+
+    bool toggleFilletMode();
+    bool toggleShellOpenFace(const app::selection::SelectionItem& selection);
+    bool confirmShellFaceSelection();
+    std::optional<std::string> activeShellBodyId() const;
 
     bool handleMousePress(const QPoint& screenPos, Qt::MouseButton button);
     bool handleMouseMove(const QPoint& screenPos);
@@ -58,6 +70,9 @@ private:
     app::commands::CommandProcessor* commandProcessor_ = nullptr;
     std::unique_ptr<ExtrudeTool> extrudeTool_;
     std::unique_ptr<RevolveTool> revolveTool_;
+    std::unique_ptr<FilletChamferTool> filletTool_;
+    std::unique_ptr<PushPullTool> pushPullTool_;
+    std::unique_ptr<ShellTool> shellTool_;
     ModelingTool* activeTool_ = nullptr;
     app::selection::SelectionKey activeSelection_{};
 };

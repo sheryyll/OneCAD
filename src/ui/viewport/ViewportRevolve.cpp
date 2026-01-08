@@ -8,11 +8,17 @@ namespace onecad::ui {
 bool Viewport::activateRevolveTool() {
     if (m_inSketchMode || !m_selectionManager || !m_modelingToolManager) {
         setRevolveToolActive(false);
+        setFilletToolActive(false);
+        setPushPullToolActive(false);
+        setShellToolActive(false);
         return false;
     }
 
     if (m_revolveToolActive) {
         setExtrudeToolActive(false);
+        setFilletToolActive(false);
+        setPushPullToolActive(false);
+        setShellToolActive(false);
         return true;
     }
 
@@ -22,11 +28,18 @@ bool Viewport::activateRevolveTool() {
          selection.front().kind == app::selection::SelectionKind::Face)) {
         m_modelingToolManager->activateRevolve(selection.front());
         setExtrudeToolActive(false);
-        setRevolveToolActive(true);
-        return true;
+        setFilletToolActive(false);
+        setPushPullToolActive(false);
+        setShellToolActive(false);
+        const bool activated = m_modelingToolManager->hasActiveTool();
+        setRevolveToolActive(activated);
+        return activated;
     }
 
     setRevolveToolActive(false);
+    setFilletToolActive(false);
+    setPushPullToolActive(false);
+    setShellToolActive(false);
     return false;
 }
 

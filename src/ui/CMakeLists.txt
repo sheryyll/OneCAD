@@ -7,12 +7,16 @@ add_library(onecad_ui STATIC
     viewport/Viewport.cpp
     viewport/RenderDebugPanel.cpp
     viewport/ViewportRevolve.cpp
+    viewport/ViewportModeling.cpp
     viewcube/ViewCube.cpp
     navigator/ModelNavigator.cpp
     toolbar/ContextToolbar.cpp
     tools/ModelingToolManager.cpp
     tools/ExtrudeTool.cpp
     tools/RevolveTool.cpp
+    tools/FilletChamferTool.cpp
+    tools/PushPullTool.cpp
+    tools/ShellTool.cpp
     sketch/ConstraintPanel.cpp
     sketch/DimensionEditor.cpp
     sketch/SketchModePanel.cpp

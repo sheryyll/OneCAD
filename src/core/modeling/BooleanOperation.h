@@ -15,7 +15,7 @@ public:
      * @param tool The shape being applied (e.g., the extrusion).
      * @param targets The list of shapes to modify (usually just one).
      * @param mode The boolean operation mode.
-     * @return The resulting shape. If multiple targets, they might be fused first or processed sequentially.
+     * @return The resulting shape, or a null shape if the operation fails.
      *         For v1, we assume single target for Cut/Join/Intersect.
      */
     static TopoDS_Shape perform(const TopoDS_Shape& tool, 

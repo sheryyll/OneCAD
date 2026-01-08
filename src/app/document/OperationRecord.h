@@ -19,7 +19,8 @@ enum class OperationType {
 enum class BooleanMode {
     NewBody,
     Add,
-    Cut
+    Cut,
+    Intersect
 };
 
 struct SketchRegionRef {

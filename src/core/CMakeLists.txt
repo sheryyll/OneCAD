@@ -28,6 +28,7 @@ add_library(onecad_core STATIC
     loop/FaceBuilder.cpp
     loop/RegionUtils.cpp
     modeling/BooleanOperation.cpp
+    modeling/EdgeChainer.cpp
 )
 
 target_include_directories(onecad_core

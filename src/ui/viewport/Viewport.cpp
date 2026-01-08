@@ -268,17 +268,23 @@ Viewport::Viewport(QWidget* parent)
         if (index < 0 || index >= static_cast<int>(m_pendingCandidates.size())) {
             return;
         }
+        const auto candidate = m_pendingCandidates[static_cast<size_t>(index)];
         m_selectionManager->applySelectionCandidate(
-            m_pendingCandidates[static_cast<size_t>(index)],
+            candidate,
             m_pendingModifiers,
             m_pendingClickPos
         );
+        if (m_pendingShellFaceToggle && m_modelingToolManager) {
+            m_modelingToolManager->toggleShellOpenFace(candidate);
+        }
+        m_pendingShellFaceToggle = false;
         update();
     });
     connect(m_deepSelectPopup, &selection::DeepSelectPopup::popupClosed,
             this, [this]() {
         m_pendingCandidates.clear();
         m_pendingClickPos = QPoint();
+        m_pendingShellFaceToggle = false;
         if (m_selectionManager) {
             m_selectionManager->setHoverItem(std::nullopt);
         }
@@ -438,6 +444,9 @@ void Viewport::paintGL() {
         style.glowAlpha = 0.18f;
         style.drawEdges = true;
         style.previewAlpha = 0.35f;
+        if (!m_previewHiddenBodyId.empty()) {
+            style.previewAlpha = 0.8f;
+        }
         style.keyLightDir = m_renderTuning.keyLightDir;
         style.fillLightDir = m_renderTuning.fillLightDir;
         style.fillLightIntensity = m_renderTuning.fillLightIntensity;
@@ -613,6 +622,7 @@ void Viewport::mousePressEvent(QMouseEvent* event) {
         m_pendingCandidates.clear();
         m_pendingClickPos = QPoint();
         m_pendingModifiers = {};
+        m_pendingShellFaceToggle = false;
     }
 
     if (m_inSketchMode && m_sketchRenderer && event->button() == Qt::LeftButton &&
@@ -658,15 +668,25 @@ void Viewport::mousePressEvent(QMouseEvent* event) {
                                       buildViewProjection(),
                                       viewportSize());
 
+            auto topCandidate = m_selectionManager->topCandidate(pickResult);
+
             bool allowTool = false;
             if (!modifiers.shift && !modifiers.toggle &&
                 m_modelingToolManager && m_modelingToolManager->hasActiveTool()) {
-                auto topCandidate = m_selectionManager->topCandidate(pickResult);
                 const auto& selection = m_selectionManager->selection();
                 if (topCandidate.has_value() && selection.size() == 1) {
                     app::selection::SelectionKey topKey{topCandidate->kind, topCandidate->id};
                     app::selection::SelectionKey selKey{selection.front().kind, selection.front().id};
                     if (topKey == selKey) {
+                        allowTool = true;
+                    }
+                }
+                if (!allowTool && topCandidate.has_value()) {
+                    auto shellBodyId = m_modelingToolManager->activeShellBodyId();
+                    if (shellBodyId.has_value() &&
+                        (topCandidate->kind == app::selection::SelectionKind::Face ||
+                         topCandidate->kind == app::selection::SelectionKind::Body) &&
+                        topCandidate->id.ownerId == shellBodyId.value()) {
                         allowTool = true;
                     }
                 }
@@ -677,12 +697,24 @@ void Viewport::mousePressEvent(QMouseEvent* event) {
                 return;
             }
 
+            bool shellTogglePending = false;
+            if (modifiers.shift && m_modelingToolManager && topCandidate.has_value()) {
+                auto shellBodyId = m_modelingToolManager->activeShellBodyId();
+                if (shellBodyId.has_value() &&
+                    topCandidate->kind == app::selection::SelectionKind::Face) {
+                    shellTogglePending = true;
+                    modifiers.toggle = true;
+                    modifiers.shift = false;
+                }
+            }
+
             auto action = m_selectionManager->handleClick(pickResult, modifiers, event->pos());
 
             if (action.needsDeepSelect) {
                 m_pendingCandidates = action.candidates;
                 m_pendingModifiers = modifiers;
                 m_pendingClickPos = event->pos();
+                m_pendingShellFaceToggle = shellTogglePending;
                 QStringList labels = buildDeepSelectLabels(m_pendingCandidates);
                 m_deepSelectPopup->setCandidateLabels(labels);
                 QPoint popupPos = mapToGlobal(event->pos() + QPoint(12, 12));
@@ -693,6 +725,10 @@ void Viewport::mousePressEvent(QMouseEvent* event) {
                 return;
             }
 
+            if (shellTogglePending && topCandidate.has_value() && m_modelingToolManager) {
+                m_modelingToolManager->toggleShellOpenFace(*topCandidate);
+            }
+            m_pendingShellFaceToggle = false;
             update();
             return;
         }
@@ -860,6 +896,9 @@ void Viewport::mouseReleaseEvent(QMouseEvent* event) {
                 m_modelingToolManager->cancelActiveTool();
                 setExtrudeToolActive(false);
                 setRevolveToolActive(false);
+                setFilletToolActive(false);
+                setPushPullToolActive(false);
+                setShellToolActive(false);
             }
             update();
             return;
@@ -1028,12 +1067,19 @@ void Viewport::beginPlaneSelection() {
     }
     setExtrudeToolActive(false);
     setRevolveToolActive(false);
+    setFilletToolActive(false);
+    setPushPullToolActive(false);
+    setShellToolActive(false);
+    setFilletToolActive(false);
+    setPushPullToolActive(false);
+    setShellToolActive(false);
     if (m_deepSelectPopup && m_deepSelectPopup->isVisible()) {
         m_deepSelectPopup->hide();
     }
     m_pendingCandidates.clear();
     m_pendingClickPos = QPoint();
     m_pendingModifiers = {};
+    m_pendingShellFaceToggle = false;
     m_planeSelectionActive = true;
     m_planeHoverIndex = -1;
     update();
@@ -1368,11 +1414,17 @@ void Viewport::exitSketchMode() {
 bool Viewport::activateExtrudeTool() {
     if (m_inSketchMode || !m_selectionManager || !m_modelingToolManager || !m_referenceSketch) {
         setExtrudeToolActive(false);
+        setFilletToolActive(false);
+        setPushPullToolActive(false);
+        setShellToolActive(false);
         return false;
     }
 
     if (m_extrudeToolActive) {
         setRevolveToolActive(false);
+        setFilletToolActive(false);
+        setPushPullToolActive(false);
+        setShellToolActive(false);
         return true;
     }
 
@@ -1381,11 +1433,18 @@ bool Viewport::activateExtrudeTool() {
         selection.front().kind == app::selection::SelectionKind::SketchRegion) {
         m_modelingToolManager->activateExtrude(selection.front());
         setRevolveToolActive(false);
-        setExtrudeToolActive(true);
-        return true;
+        setFilletToolActive(false);
+        setPushPullToolActive(false);
+        setShellToolActive(false);
+        const bool activated = m_modelingToolManager->hasActiveTool();
+        setExtrudeToolActive(activated);
+        return activated;
     }
 
     setExtrudeToolActive(false);
+    setFilletToolActive(false);
+    setPushPullToolActive(false);
+    setShellToolActive(false);
     return false;
 }
 
@@ -1494,12 +1553,31 @@ void Viewport::keyPressEvent(QKeyEvent* event) {
         return;
     }
 
+    if (!m_inSketchMode && m_modelingToolManager && m_modelingToolManager->hasActiveTool()) {
+        if (event->key() == Qt::Key_Tab) {
+            if (m_modelingToolManager->toggleFilletMode()) {
+                update();
+                event->accept();
+                return;
+            }
+        }
+        if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
+            if (m_modelingToolManager->confirmShellFaceSelection()) {
+                event->accept();
+                return;
+            }
+        }
+    }
+
     if (!m_inSketchMode && m_modelingToolManager &&
         m_modelingToolManager->hasActiveTool() &&
         event->key() == Qt::Key_Escape) {
         m_modelingToolManager->cancelActiveTool();
         setExtrudeToolActive(false);
         setRevolveToolActive(false);
+        setFilletToolActive(false);
+        setPushPullToolActive(false);
+        setShellToolActive(false);
         event->accept();
         return;
     }
@@ -1675,8 +1753,49 @@ void Viewport::handleModelSelectionChanged() {
     // Forward selection change to tool manager (e.g. for Revolve axis picking)
     m_modelingToolManager->onSelectionChanged(selection);
 
+    // Emit context based on selection kind
+    int context = 0;  // Default
+    if (!selection.empty()) {
+        switch (selection.front().kind) {
+            case app::selection::SelectionKind::Edge:
+                context = 1;
+                break;
+            case app::selection::SelectionKind::Face:
+                context = 2;
+                break;
+            case app::selection::SelectionKind::Body:
+                context = 3;
+                break;
+            default:
+                context = 0;
+                break;
+        }
+    }
+    emit selectionContextChanged(context);
+
     if (m_revolveToolActive) {
         return;
+    }
+    if (m_shellToolActive) {
+        auto shellBodyId = m_modelingToolManager
+            ? m_modelingToolManager->activeShellBodyId()
+            : std::nullopt;
+        if (!shellBodyId.has_value()) {
+            m_modelingToolManager->cancelActiveTool();
+            setShellToolActive(false);
+        } else if (!selection.empty()) {
+            const auto& front = selection.front();
+            const bool sameBody = (front.id.ownerId == shellBodyId.value()) ||
+                (front.id.elementId == shellBodyId.value());
+            if (!sameBody) {
+                m_modelingToolManager->cancelActiveTool();
+                setShellToolActive(false);
+            } else {
+                return;
+            }
+        } else {
+            return;
+        }
     }
 
     const bool canExtrude = selection.size() == 1 &&
@@ -1685,12 +1804,18 @@ void Viewport::handleModelSelectionChanged() {
 
     if (canExtrude) {
         m_modelingToolManager->activateExtrude(selection.front());
-        setExtrudeToolActive(true);
+        setFilletToolActive(false);
+        setPushPullToolActive(false);
+        setShellToolActive(false);
+        setExtrudeToolActive(m_modelingToolManager->hasActiveTool());
         return;
     }
 
     m_modelingToolManager->cancelActiveTool();
     setExtrudeToolActive(false);
+    setFilletToolActive(false);
+    setPushPullToolActive(false);
+    setShellToolActive(false);
 }
 
 void Viewport::setExtrudeToolActive(bool active) {
@@ -1699,6 +1824,30 @@ void Viewport::setExtrudeToolActive(bool active) {
     }
     m_extrudeToolActive = active;
     emit extrudeToolActiveChanged(active);
+}
+
+void Viewport::setFilletToolActive(bool active) {
+    if (m_filletToolActive == active) {
+        return;
+    }
+    m_filletToolActive = active;
+    emit filletToolActiveChanged(active);
+}
+
+void Viewport::setPushPullToolActive(bool active) {
+    if (m_pushPullToolActive == active) {
+        return;
+    }
+    m_pushPullToolActive = active;
+    emit pushPullToolActiveChanged(active);
+}
+
+void Viewport::setShellToolActive(bool active) {
+    if (m_shellToolActive == active) {
+        return;
+    }
+    m_shellToolActive = active;
+    emit shellToolActiveChanged(active);
 }
 
 void Viewport::updateSketchHoverFromManager() {
@@ -2445,6 +2594,25 @@ void Viewport::clearModelPreviewMeshes() {
         m_bodyRenderer->clearPreview();
         update();
     }
+    clearPreviewHiddenBody();
+}
+
+void Viewport::setPreviewHiddenBody(const std::string& bodyId) {
+    if (m_previewHiddenBodyId == bodyId) {
+        return;
+    }
+    m_previewHiddenBodyId = bodyId;
+    syncModelMeshes();
+    update();
+}
+
+void Viewport::clearPreviewHiddenBody() {
+    if (m_previewHiddenBodyId.empty()) {
+        return;
+    }
+    m_previewHiddenBodyId.clear();
+    syncModelMeshes();
+    update();
 }
 
 void Viewport::syncModelMeshes() {
@@ -2456,7 +2624,8 @@ void Viewport::syncModelMeshes() {
     // Build filtered list of visible body meshes
     std::vector<render::SceneMeshStore::Mesh> visibleMeshes;
     store.forEachMesh([&](const render::SceneMeshStore::Mesh& mesh) {
-        if (m_document->isBodyVisible(mesh.bodyId)) {
+        if (m_document->isBodyVisible(mesh.bodyId) &&
+            (m_previewHiddenBodyId.empty() || mesh.bodyId != m_previewHiddenBodyId)) {
             visibleMeshes.push_back(mesh);
         }
     });

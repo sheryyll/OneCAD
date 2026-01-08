@@ -16,8 +16,8 @@ namespace onecad::core::modeling {
 TopoDS_Shape BooleanOperation::perform(const TopoDS_Shape& tool, 
                                        const TopoDS_Shape& target, 
                                        app::BooleanMode mode) {
-    if (target.IsNull()) {
-        return tool;
+    if (tool.IsNull() || target.IsNull()) {
+        return TopoDS_Shape();
     }
 
     switch (mode) {
@@ -37,12 +37,18 @@ TopoDS_Shape BooleanOperation::perform(const TopoDS_Shape& tool,
             }
             break;
         }
-        // Intersect (Common) logic can be added here if BooleanMode supports it.
-        // Currently OperationRecord.h only defines NewBody, Add, Cut.
+        case app::BooleanMode::Intersect: {
+            BRepAlgoAPI_Common common(target, tool);
+            common.Build();
+            if (common.IsDone()) {
+                return common.Shape();
+            }
+            break;
+        }
         default:
             break;
     }
-    return tool;
+    return TopoDS_Shape();
 }
 
 app::BooleanMode BooleanOperation::detectMode(const TopoDS_Shape& tool, 

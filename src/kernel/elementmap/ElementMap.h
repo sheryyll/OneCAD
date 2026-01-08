@@ -25,6 +25,7 @@
 #include <GeomAbs_SurfaceType.hxx>
 #include <NCollection_DataMap.hxx>
 #include <TopAbs_ShapeEnum.hxx>
+#include <TopAbs_Orientation.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Edge.hxx>
@@ -141,6 +142,7 @@ private:
     void bindShape(const TopoDS_Shape& shape, const ElementId& id);
     void unbindShape(const TopoDS_Shape& shape, const ElementId& id);
     void unbindShape(const TopoDS_Shape& shape);
+    static TopoDS_Shape normalizeShape(const TopoDS_Shape& shape);
     std::string kindToString(ElementKind kind) const;
     ElementKind kindFromString(const std::string& value) const;
 
@@ -208,9 +210,10 @@ inline std::vector<ElementId> ElementMap::ids() const {
 
 inline std::vector<ElementId> ElementMap::findIdsByShape(const TopoDS_Shape& shape) const {
     std::vector<ElementId> out;
-    if (shape.IsNull()) return out;
-    if (!shapeToIds_.IsBound(shape)) return out;
-    const std::vector<std::string>& ids = shapeToIds_.Find(shape);
+    TopoDS_Shape normalized = normalizeShape(shape);
+    if (normalized.IsNull()) return out;
+    if (!shapeToIds_.IsBound(normalized)) return out;
+    const std::vector<std::string>& ids = shapeToIds_.Find(normalized);
     out.reserve(ids.size());
     for (const auto& idValue : ids) {
         out.push_back(ElementId{idValue});
@@ -541,31 +544,44 @@ inline void ElementMap::upsertEntry(const ElementId& id, ElementKind kind, const
 }
 
 inline void ElementMap::bindShape(const TopoDS_Shape& shape, const ElementId& id) {
-    if (shape.IsNull()) return;
-    if (!shapeToIds_.IsBound(shape)) {
-        shapeToIds_.Bind(shape, {});
+    TopoDS_Shape normalized = normalizeShape(shape);
+    if (normalized.IsNull()) return;
+    if (!shapeToIds_.IsBound(normalized)) {
+        shapeToIds_.Bind(normalized, {});
     }
-    std::vector<std::string>& ids = shapeToIds_.ChangeFind(shape);
+    std::vector<std::string>& ids = shapeToIds_.ChangeFind(normalized);
     if (std::find(ids.begin(), ids.end(), id.value) == ids.end()) {
         ids.push_back(id.value);
     }
 }
 
 inline void ElementMap::unbindShape(const TopoDS_Shape& shape, const ElementId& id) {
-    if (shape.IsNull()) return;
-    if (!shapeToIds_.IsBound(shape)) return;
-    std::vector<std::string>& ids = shapeToIds_.ChangeFind(shape);
+    TopoDS_Shape normalized = normalizeShape(shape);
+    if (normalized.IsNull()) return;
+    if (!shapeToIds_.IsBound(normalized)) return;
+    std::vector<std::string>& ids = shapeToIds_.ChangeFind(normalized);
     ids.erase(std::remove(ids.begin(), ids.end(), id.value), ids.end());
     if (ids.empty()) {
-        shapeToIds_.UnBind(shape);
+        shapeToIds_.UnBind(normalized);
     }
 }
 
 inline void ElementMap::unbindShape(const TopoDS_Shape& shape) {
-    if (shape.IsNull()) return;
-    if (shapeToIds_.IsBound(shape)) {
-        shapeToIds_.UnBind(shape);
+    TopoDS_Shape normalized = normalizeShape(shape);
+    if (normalized.IsNull()) return;
+    if (shapeToIds_.IsBound(normalized)) {
+        shapeToIds_.UnBind(normalized);
     }
+}
+
+inline TopoDS_Shape ElementMap::normalizeShape(const TopoDS_Shape& shape) {
+    if (shape.IsNull()) {
+        return shape;
+    }
+    if (shape.Orientation() == TopAbs_FORWARD) {
+        return shape;
+    }
+    return shape.Oriented(TopAbs_FORWARD);
 }
 
 inline std::string ElementMap::kindToString(ElementKind kind) const {

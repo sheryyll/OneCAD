@@ -412,6 +412,48 @@ void MainWindow::setupToolBar() {
             m_toolbar->setRevolveActive(activated);
         }
     });
+    connect(m_toolbar, &ContextToolbar::filletRequested, this, [this]() {
+        if (!m_viewport) {
+            return;
+        }
+        const bool activated = m_viewport->activateFilletTool();
+        if (m_toolStatus) {
+            m_toolStatus->setText(activated
+                ? tr("Fillet/Chamfer tool active - Drag to adjust")
+                : tr("Select an edge to fillet or chamfer"));
+        }
+        if (m_toolbar) {
+            m_toolbar->setFilletActive(activated);
+        }
+    });
+    connect(m_toolbar, &ContextToolbar::pushPullRequested, this, [this]() {
+        if (!m_viewport) {
+            return;
+        }
+        const bool activated = m_viewport->activatePushPullTool();
+        if (m_toolStatus) {
+            m_toolStatus->setText(activated
+                ? tr("Push/Pull tool active - Drag to extrude face")
+                : tr("Select a planar face to push/pull"));
+        }
+        if (m_toolbar) {
+            m_toolbar->setPushPullActive(activated);
+        }
+    });
+    connect(m_toolbar, &ContextToolbar::shellRequested, this, [this]() {
+        if (!m_viewport) {
+            return;
+        }
+        const bool activated = m_viewport->activateShellTool();
+        if (m_toolStatus) {
+            m_toolStatus->setText(activated
+                ? tr("Shell tool active - Shift+click faces, then drag")
+                : tr("Select a body to shell"));
+        }
+        if (m_toolbar) {
+            m_toolbar->setShellActive(activated);
+        }
+    });
     connect(m_toolbar, &ContextToolbar::exitSketchRequested,
             this, &MainWindow::onExitSketch);
     connect(m_toolbar, &ContextToolbar::importRequested,
@@ -437,6 +479,32 @@ void MainWindow::setupToolBar() {
                 m_toolbar, &ContextToolbar::setExtrudeActive);
         connect(m_viewport, &Viewport::revolveToolActiveChanged,
                 m_toolbar, &ContextToolbar::setRevolveActive);
+        connect(m_viewport, &Viewport::filletToolActiveChanged,
+                m_toolbar, &ContextToolbar::setFilletActive);
+        connect(m_viewport, &Viewport::pushPullToolActiveChanged,
+                m_toolbar, &ContextToolbar::setPushPullActive);
+        connect(m_viewport, &Viewport::shellToolActiveChanged,
+                m_toolbar, &ContextToolbar::setShellActive);
+        connect(m_viewport, &Viewport::selectionContextChanged, this, [this](int context) {
+            if (!m_toolbar || !m_viewport || m_viewport->isInSketchMode()) {
+                return;
+            }
+            // Map int context to ContextToolbar::Context
+            switch (context) {
+                case 1:
+                    m_toolbar->setContext(ContextToolbar::Context::Edge);
+                    break;
+                case 2:
+                    m_toolbar->setContext(ContextToolbar::Context::Face);
+                    break;
+                case 3:
+                    m_toolbar->setContext(ContextToolbar::Context::Body);
+                    break;
+                default:
+                    m_toolbar->setContext(ContextToolbar::Context::Default);
+                    break;
+            }
+        });
     }
 
     // Reposition toolbar when context changes (button visibility affects height)

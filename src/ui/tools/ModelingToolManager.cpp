@@ -4,6 +4,9 @@
 #include "ModelingToolManager.h"
 #include "ExtrudeTool.h"
 #include "RevolveTool.h"
+#include "FilletChamferTool.h"
+#include "PushPullTool.h"
+#include "ShellTool.h"
 
 #include "../viewport/Viewport.h"
 
@@ -13,6 +16,9 @@ ModelingToolManager::ModelingToolManager(Viewport* viewport, QObject* parent)
     : QObject(parent), viewport_(viewport) {
     extrudeTool_ = std::make_unique<ExtrudeTool>(viewport_, document_);
     revolveTool_ = std::make_unique<RevolveTool>(viewport_, document_);
+    filletTool_ = std::make_unique<FilletChamferTool>(viewport_, document_);
+    pushPullTool_ = std::make_unique<PushPullTool>(viewport_, document_);
+    shellTool_ = std::make_unique<ShellTool>(viewport_, document_);
 }
 
 ModelingToolManager::~ModelingToolManager() = default;
@@ -25,6 +31,15 @@ void ModelingToolManager::setDocument(app::Document* document) {
     if (revolveTool_) {
         revolveTool_->setDocument(document_);
     }
+    if (filletTool_) {
+        filletTool_->setDocument(document_);
+    }
+    if (pushPullTool_) {
+        pushPullTool_->setDocument(document_);
+    }
+    if (shellTool_) {
+        shellTool_->setDocument(document_);
+    }
 }
 
 void ModelingToolManager::setCommandProcessor(app::commands::CommandProcessor* processor) {
@@ -34,6 +49,15 @@ void ModelingToolManager::setCommandProcessor(app::commands::CommandProcessor* p
     }
     if (revolveTool_) {
         revolveTool_->setCommandProcessor(commandProcessor_);
+    }
+    if (filletTool_) {
+        filletTool_->setCommandProcessor(commandProcessor_);
+    }
+    if (pushPullTool_) {
+        pushPullTool_->setCommandProcessor(commandProcessor_);
+    }
+    if (shellTool_) {
+        shellTool_->setCommandProcessor(commandProcessor_);
     }
 }
 
@@ -82,6 +106,57 @@ void ModelingToolManager::activateRevolve(const app::selection::SelectionItem& s
     activeTool_->begin(selection);
 }
 
+void ModelingToolManager::activateFillet(const app::selection::SelectionItem& selection) {
+    if (!filletTool_) return;
+
+    app::selection::SelectionKey key{selection.kind, selection.id};
+    if (activeTool_ == filletTool_.get() && activeSelection_ == key && activeTool_->isActive()) {
+        return;
+    }
+
+    if (activeTool_ && activeTool_ != filletTool_.get()) {
+        activeTool_->cancel();
+    }
+
+    activeSelection_ = key;
+    activeTool_ = filletTool_.get();
+    activeTool_->begin(selection);
+}
+
+void ModelingToolManager::activatePushPull(const app::selection::SelectionItem& selection) {
+    if (!pushPullTool_) return;
+
+    app::selection::SelectionKey key{selection.kind, selection.id};
+    if (activeTool_ == pushPullTool_.get() && activeSelection_ == key && activeTool_->isActive()) {
+        return;
+    }
+
+    if (activeTool_ && activeTool_ != pushPullTool_.get()) {
+        activeTool_->cancel();
+    }
+
+    activeSelection_ = key;
+    activeTool_ = pushPullTool_.get();
+    activeTool_->begin(selection);
+}
+
+void ModelingToolManager::activateShell(const app::selection::SelectionItem& selection) {
+    if (!shellTool_) return;
+
+    app::selection::SelectionKey key{selection.kind, selection.id};
+    if (activeTool_ == shellTool_.get() && activeSelection_ == key && activeTool_->isActive()) {
+        return;
+    }
+
+    if (activeTool_ && activeTool_ != shellTool_.get()) {
+        activeTool_->cancel();
+    }
+
+    activeSelection_ = key;
+    activeTool_ = shellTool_.get();
+    activeTool_->begin(selection);
+}
+
 void ModelingToolManager::cancelActiveTool() {
     if (activeTool_) {
         activeTool_->cancel();
@@ -94,6 +169,38 @@ void ModelingToolManager::onSelectionChanged(const std::vector<app::selection::S
     if (activeTool_ == revolveTool_.get()) {
         revolveTool_->onSelectionChanged(selection);
     }
+}
+
+bool ModelingToolManager::toggleFilletMode() {
+    if (activeTool_ == filletTool_.get() && filletTool_ && filletTool_->isActive()) {
+        filletTool_->toggleMode();
+        return true;
+    }
+    return false;
+}
+
+bool ModelingToolManager::toggleShellOpenFace(const app::selection::SelectionItem& selection) {
+    if (activeTool_ == shellTool_.get() && shellTool_ && shellTool_->isActive()) {
+        return shellTool_->addOpenFace(selection);
+    }
+    return false;
+}
+
+bool ModelingToolManager::confirmShellFaceSelection() {
+    if (activeTool_ == shellTool_.get() && shellTool_ && shellTool_->isActive()) {
+        shellTool_->confirmFaceSelection();
+        return true;
+    }
+    return false;
+}
+
+std::optional<std::string> ModelingToolManager::activeShellBodyId() const {
+    if (activeTool_ == shellTool_.get() && shellTool_ && shellTool_->isActive()) {
+        if (!shellTool_->targetBodyId().empty()) {
+            return shellTool_->targetBodyId();
+        }
+    }
+    return std::nullopt;
 }
 
 bool ModelingToolManager::handleMousePress(const QPoint& screenPos, Qt::MouseButton button) {

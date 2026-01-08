@@ -32,12 +32,18 @@ public slots:
     void setContext(Context context);
     void setExtrudeActive(bool active);
     void setRevolveActive(bool active);
+    void setFilletActive(bool active);
+    void setPushPullActive(bool active);
+    void setShellActive(bool active);
 
 signals:
     void contextChanged();
     void newSketchRequested();
     void extrudeRequested();
     void revolveRequested();
+    void filletRequested();
+    void pushPullRequested();
+    void shellRequested();
     void exitSketchRequested();
     void importRequested();
     void lineToolActivated();
@@ -57,6 +63,9 @@ private:
     SidebarToolButton* m_newSketchButton = nullptr;
     SidebarToolButton* m_extrudeButton = nullptr;
     SidebarToolButton* m_revolveButton = nullptr;
+    SidebarToolButton* m_filletButton = nullptr;
+    SidebarToolButton* m_pushPullButton = nullptr;
+    SidebarToolButton* m_shellButton = nullptr;
     SidebarToolButton* m_importButton = nullptr;
     SidebarToolButton* m_exitSketchButton = nullptr;
     SidebarToolButton* m_lineButton = nullptr;
