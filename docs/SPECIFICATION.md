@@ -317,7 +317,7 @@ When user types a value with different unit than document default, the system au
 
 ## 5. Sketch System
 
-**IMPLEMENTATION STATUS: PHASE 2 COMPLETE** ✅ (Updated 2026-01-06)
+**IMPLEMENTATION STATUS: PHASE 2 COMPLETE** ✅ (Updated 2026-01-09)
 
 | Component | Lines of Code | Status | Verification |
 |-----------|---------------|--------|--------------|
@@ -421,7 +421,7 @@ flowchart TD
 
 ### 5.6 Sketch Tools — v1.0
 
-**IMPLEMENTATION STATUS: ALL 7 TOOLS COMPLETE** (as of 2026-01-04)
+**IMPLEMENTATION STATUS: ALL 7 TOOLS COMPLETE** (as of 2026-01-09)
 
 | Tool | Description | Shortcut | Parameters | Status |
 |------|-------------|----------|------------|--------|
@@ -1582,18 +1582,17 @@ flowchart LR
 
 ## 8. 3D Modeling Operations
 
-**IMPLEMENTATION STATUS: PHASE 3 IN PROGRESS** (~25% complete, updated 2026-01-06)
+**IMPLEMENTATION STATUS: PHASE 3 COMPLETE** ✅ (Updated 2026-01-09)
 
 | Operation | Status | Notes |
 |-----------|--------|-------|
-| **Extrude v1a** | ✅ Complete (282 LOC) | SketchRegion input, preview, draft angle working |
-| **Extrude v1b** | ⏳ Planned | Face input, smart boolean |
-| **Revolve** | ⏳ In Progress | Profile+Axis, drag interaction, preview working |
-| **Boolean Ops** | ⏳ Partial | Union/Cut via BRepAlgoAPI, Intersect pending |
-| **Push/Pull** | ❌ Not started | |
-| **Fillet/Chamfer** | ❌ Not started | |
-| **Shell** | ❌ Not started | |
-| **Patterns** | ❌ Not started | |
+| **Extrude v1a** | ✅ Complete | SketchRegion input, preview, draft angle working |
+| **Push/Pull** | ✅ Complete | Face input, auto-boolean (Add/Cut), smart boolean logic |
+| **Revolve** | ✅ Complete | Profile+Axis, drag interaction, boolean mode |
+| **Boolean Ops** | ✅ Complete | Union/Cut/Intersect via `BooleanOperation` + `ModifyBodyCommand` |
+| **Fillet/Chamfer** | ✅ Complete | Variable radius, drag-based mode switching, edge chaining |
+| **Shell** | ✅ Complete | Hollow solid, multi-face opening, validation |
+| **Patterns** | ⏳ Phase 3.4 | Not started |
 
 ### 8.1 Operations Overview — v1.0
 
@@ -1621,259 +1620,147 @@ mindmap
       Circular Pattern
 ```
 
-### 8.2 Extrude Operation
+### 8.2 Extrude & Push/Pull Operation
 
-#### 8.2.1 Basic Behavior
+**Implemented as unified `ExtrudeTool` (282 LOC).**
 
-| Property | Specification |
-|----------|---------------|
-| **Activation** | Modeling mode only; auto-activates on single sketch-region selection (reference sketch); toolbar button available |
-| **Input** | SketchRegion (v1a). Face input reserved for same tool (v1b) |
-| **Direction** | Positive normal to sketch plane (default) |
-| **Flip Direction** | Drag in opposite direction (negative distance) |
-| **Distance Input** | Drag with on-screen value + arrow; commit on mouse release; Esc cancels |
-| **Draft Angle** | Fully working (BRepOffsetAPI_DraftAngle); default 0°; UI pending |
-| **Multi-step** | Tool stays active after commit; new selection changes the input |
+#### 8.2.1 Core Behavior
 
-**v1a Limitation:** Only one sketch region is extruded per activation; multi-region extrude is planned.
+| Property | Specification | Implementation |
+|----------|---------------|----------------|
+| **Activation** | Modeling mode (Face selection) OR Sketch mode (Region selection) | ✅ Auto-activates on selection |
+| **Input** | SketchRegion (Extrude) OR Planar Face (Push/Pull) | ✅ Both supported |
+| **Direction** | Normal to sketch plane or face | ✅ Automatic |
+| **Interaction** | Drag arrow handle + numeric label | ✅ Pixel-projected drag logic |
+| **Preview** | Real-time shaded preview (0.35 opacity) | ✅ `SceneMeshStore` preview |
 
-#### 8.2.2 Direction Determination
+#### 8.2.2 Smart Boolean Logic (Push/Pull)
 
-```mermaid
-flowchart TD
-    A[User selects region] --> B[Show arrow handle on normal]
-    B --> C[User drags handle]
-    C --> D{Drag direction?}
-    D -->|Positive| E[Extrude in positive normal]
-    D -->|Negative| F[Flip to negative normal]
-    E --> G[Preview with low opacity shading + distance label]
-    F --> G
-    G --> H{Mouse release?}
-    H -->|Yes| I[Auto-commit operation]
+When a face is selected and dragged:
+
+| Drag Direction | Boolean Mode | Logic |
+|----------------|--------------|-------|
+| **Outward** (Positive normal) | **Add (Union)** | Extends existing body volume |
+| **Inward** (Negative normal) | **Cut (Subtract)** | Removes material from body |
+
+**Implementation:**
+```cpp
+void ExtrudeTool::detectBooleanMode(double distance) {
+    if (!targetBodyId_.empty()) {
+        // Face push/pull logic: Positive = Add, Negative = Cut
+        booleanMode_ = (distance >= 0) ? app::BooleanMode::Add : app::BooleanMode::Cut;
+    } else {
+        // Sketch logic: Default to NewBody (smart intersection pending v1b)
+        booleanMode_ = app::BooleanMode::NewBody;
+    }
+}
 ```
 
-**Implementation Note (v1a):** The arrow handle moves with the preview face while dragging. The distance label is display-only during drag; numeric entry is planned.
+#### 8.2.3 Draft Angle
 
-#### 8.2.3 Smart Boolean Integration
-
-Shapr3D-style automatic boolean determination:
-
-| Scenario | Automatic Result |
-|----------|------------------|
-| Extrude into existing body | Assume Cut (Subtract) |
-| Extrude away from body | Assume Add (Union) |
-| No intersection | New Body |
-
-**Boolean Override Badge:** Planned (v1b). Small popup menu next to distance label allows explicit selection of Union, Subtract, Intersect, or New Body.
-
-**Implementation Note (v1a):** Extrude commits as **New Body** only. Boolean enum exists in the data model for future smart-boolean support.
-
-#### 8.2.4 Draft Angle
-
-**IMPLEMENTATION STATUS: WORKING** (via BRepOffsetAPI_DraftAngle)
+**Status:** ✅ Fully working via `BRepOffsetAPI_DraftAngle`.
 
 | Property | Specification |
 |----------|---------------|
 | Range | 0° to 89° |
 | Default | 0° (no draft) |
-| Input method | Programmatic (UI slider pending); parameter stored in OperationRecord |
-| Positive angle | Tapers inward (for mold release) |
-| Negative angle | Tapers outward |
-| Algorithm | Side faces identified via normal dot product; draft applied per-face |
+| Behavior | Tapers extrusion side faces relative to neutral plane |
 
-#### 8.2.5 v2.0 Additions
-
-- Symmetric extrude (both directions equally)
-- Asymmetric extrude (different distances each direction)
-- Extrude to face/surface
-- Extrude through all
+---
 
 ### 8.3 Revolve Operation
+
+**Implemented in `RevolveTool` (427 LOC).**
 
 | Property | Specification |
 |----------|---------------|
 | **Axis Selection** | User selects sketch line as axis |
 | **Angle** | 0° to 360°, default 360° |
-| **Direction** | Clockwise or counter-clockwise |
-| **Multi-face** | User selects which faces to revolve |
-| **Height (Helix)** | Optional parameter for helical shapes (v1.0) |
+| **Preview** | Real-time partial revolve preview |
+| **Boolean** | Supports NewBody, Add, Cut, Intersect |
+
+---
 
 ### 8.4 Boolean Operations
 
-| Operation | Description | Shortcut |
-|-----------|-------------|----------|
-| **Union** | Combine bodies into one | U |
-| **Subtract** | Remove tool body from target | B |
-| **Intersect** | Keep only overlapping volume | I |
+**Implemented via `BooleanOperation` utility + `ModifyBodyCommand`.**
+
+| Operation | OCCT API | Shortcut |
+|-----------|----------|----------|
+| **Union** | `BRepAlgoAPI_Fuse` | U |
+| **Subtract** | `BRepAlgoAPI_Cut` | B |
+| **Intersect** | `BRepAlgoAPI_Common` | I |
 
 **Workflow:**
-1. Select target body (primary selection — blue)
-2. Select tool body/bodies (secondary selection — violet)
-3. Choose boolean operation
-4. Preview shows result
-5. Confirm or cancel
+1. Select target body (primary)
+2. Select tool bodies (secondary)
+3. Execute command
+4. `ModifyBodyCommand` updates target body topology while preserving ID (critical for dependencies)
 
-**Keep Originals Option:** Checkbox to preserve input bodies after operation.
+**Smart Detection (Heuristic):**
+The system detects the likely intent based on volume overlap:
+- Significant overlap → Default to **Cut**
+- Abutting/touching → Default to **Add**
 
-### 8.5 Push/Pull Direct Modeling
+---
 
-| Property | Specification |
-|----------|---------------|
-| **Activation** | **Auto-activates** when user selects a planar face in modeling mode |
-| **Input** | Selected planar face |
-| **Visual Indicator** | Drag arrow appears on face center immediately upon selection |
-| **Positive Distance** | Extrude outward (union with body) |
-| **Negative Distance** | Cut inward (subtract from body) |
-| **Multi-body scenario** | User selects which body to modify |
-| **Adjacent Faces** | Automatically extended/trimmed |
-| **Commit** | Mouse release commits operation |
-| **Cancel** | Esc key cancels and reverts to selection |
+### 8.5 [Merged with 8.2 - Push/Pull is part of ExtrudeTool]
 
-**Auto-Activate Behavior:**
+---
 
-```mermaid
-flowchart TD
-    A[User clicks face in viewport] --> B[Face becomes selected]
-    B --> C[Drag arrow appears on face center]
-    C --> D{User action?}
-    D -->|Drags arrow| E[Preview push/pull with distance label]
-    D -->|Clicks elsewhere| F[Deselect, no operation]
-    D -->|Presses Esc| F
-    E --> G{Mouse release?}
-    G -->|Yes| H[Commit operation]
-    G -->|No| E
-```
+### 8.6 Fillet & Chamfer Operation
 
-**Body Selection for Push/Pull:**
-```mermaid
-flowchart TD
-    A[User selects face] --> B{Face borders multiple bodies?}
-    B -->|No| C[Apply to owning body]
-    B -->|Yes| D[Prompt user to select body]
-    D --> E[Highlight selectable bodies]
-    E --> F[User clicks desired body]
-    F --> C
-```
+**Implemented as unified `FilletChamferTool` (Combined Logic).**
 
-**Offset Face (Combined with Push/Pull):**
+#### 8.6.1 Interaction Design
 
-Push/Pull and Offset Face are unified into a single tool:
-- Dragging a face **outward** creates new volume (union)
-- Dragging a face **inward** removes volume (cut)
-- The tool automatically determines whether to add or subtract based on drag direction
+**Gesture-Based Mode Switching:**
+- Drag arrow **outward/right** (positive value) → **Fillet** (Round edge)
+- Drag arrow **inward/left** (negative value) → **Chamfer** (Bevel edge)
 
-### 8.6 Fillet Operation
+| Mode | Visual | Logic |
+|------|--------|-------|
+| **Fillet** | Rounded corner | `BRepFilletAPI_MakeFillet` |
+| **Chamfer** | Flat bevel | `BRepFilletAPI_MakeChamfer` |
 
-| Property | Specification |
-|----------|---------------|
-| **Input** | Selected edge(s) |
-| **Radius** | Per-edge radius supported |
-| **Chain Selection** | Auto-select tangent edges (optional) |
-| **Preview** | Real-time during radius adjustment |
-| **Interaction** | Drag arrow outward from edge |
+#### 8.6.2 Edge Chaining (`EdgeChainer`)
 
-**Variable Radius Workflow:**
-1. Select multiple edges
-2. All edges get same initial radius
-3. User can click individual edge to set different radius
-4. Each edge shows its radius value
+**Status:** ✅ Implemented using BFS tangent propagation.
 
-### 8.7 Chamfer Operation
+| Feature | Implementation |
+|---------|----------------|
+| **Selection** | Click one edge → auto-selects tangent chain |
+| **Algorithm** | BFS on vertex adjacency |
+| **Tolerance** | ~0.8° tangency threshold (`0.9999` dot product) |
+| **Closed Loops** | Detects closed chains (e.g., circle/loop) |
 
-| Property | Specification |
-|----------|---------------|
-| **Input** | Selected edge(s) |
-| **Distance** | Per-edge distance supported |
-| **Mode** | Equal distance (v1) |
-| **Preview** | Real-time during distance adjustment |
-| **Interaction** | Drag arrow inward toward edge |
+---
 
-**Combined Fillet/Chamfer Tool:**
-- Drag outward = Fillet (rounded)
-- Drag inward = Chamfer (beveled)
+### 8.7 [Merged with 8.6]
 
-### 8.8 Pattern Operations
-
-#### 8.8.1 Linear Pattern
-
-| Property | Specification |
-|----------|---------------|
-| **Source** | Body or feature (context-dependent) |
-| **Direction** | User-defined vector or edge reference |
-| **Count** | Number of instances (including original) |
-| **Spacing** | Distance between instances |
-| **Mode** | Spacing or total extent |
-
-#### 8.8.2 Circular Pattern
-
-| Property | Specification |
-|----------|---------------|
-| **Source** | Body or feature (context-dependent) |
-| **Axis** | User-selected line or edge |
-| **Count** | Number of instances (including original) |
-| **Angle** | Total angle or per-instance angle |
-| **Mode** | Equal spacing or specific angle |
-
-#### 8.8.3 Pattern Source Selection
-
-| Context | Pattern Operates On |
-|---------|---------------------|
-| Direct modeling mode | Entire body |
-| Parametric mode, body selected | Entire body |
-| Parametric mode, feature selected | Individual feature |
-
-### 8.9 Operation Preview
-
-| Property | Specification |
-|----------|---------------|
-| **Style** | Full shaded preview |
-| **Opacity** | Low opacity (30-40%) |
-| **Update** | Real-time during parameter changes |
-| **Performance** | Coarse preview tessellation planned; current preview uses standard tessellation |
-
-**Implementation Status (2026-01-05):** Preview meshes render via the BodyRenderer with ~0.35 alpha during drag.
+---
 
 ### 8.10 Shell Operation
 
+**Implemented in `ShellTool`.**
+
 Creates a hollow solid by removing material from inside a solid body, leaving walls of specified thickness.
 
-| Property | Specification |
-|----------|---------------|
-| **Input** | Selected solid body |
-| **Faces to Remove** | User selects one or more faces to open (remove) |
-| **Thickness** | Wall thickness (single value for v1.0) |
-| **Direction** | Inward (default) — material removed from inside |
-| **Minimum Thickness** | 0.1mm (prevents degenerate geometry) |
-| **Maximum Thickness** | Limited by geometry — auto-clamped to valid range |
-| **OCCT API** | `BRepOffsetAPI_MakeThickSolid` |
+| Property | Specification | Implementation |
+|----------|---------------|----------------|
+| **Input** | Selected solid body | ✅ Body selection state |
+| **Faces to Remove** | User selects faces to open | ✅ Toggle-based face selection |
+| **Thickness** | Wall thickness (inward) | ✅ `BRepOffsetAPI_MakeThickSolid` |
+| **Direction** | Inward (negative offset) | ✅ Enforced |
+| **Validation** | Clamp to min/max thickness | ✅ 0.001mm - 100mm |
 
 **Workflow:**
+1. Select Body
+2. Select Faces to remove (highlighted orange)
+3. Drag to set thickness
+4. Preview shows hollow result
 
-```mermaid
-flowchart TD
-    A[User selects body] --> B[User activates Shell tool]
-    B --> C[User selects faces to remove/open]
-    C --> D[User sets wall thickness via drag or input]
-    D --> E[Preview shows hollow result]
-    E --> F{Valid geometry?}
-    F -->|Yes| G[Commit on mouse release]
-    F -->|No| H[Show error, clamp thickness]
-    H --> D
-```
-
-**Face Selection for Shell:**
-- Selected faces become **openings** (removed entirely)
-- Typical use: select top face of a box to create open-top container
-- Multiple faces can be selected for multiple openings
-
-**Visual Feedback:**
-- Selected open faces highlighted in **orange**
-- Preview shows resulting hollow geometry with wall thickness
-- Thickness value displayed near cursor during drag
-
-**Error Handling:**
-- If thickness exceeds geometry limits, silently clamp to maximum valid value
-- If resulting shell is invalid, show toast error and cancel operation
+---
 
 ---
 

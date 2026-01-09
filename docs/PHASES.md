@@ -2,7 +2,7 @@
 
 This document outlines the phased implementation strategy for OneCAD, ensuring a robust foundation before adding complexity.
 
-**Last Updated:** 2026-01-06
+**Last Updated:** 2026-01-09
 
 ---
 
@@ -13,35 +13,34 @@ This document outlines the phased implementation strategy for OneCAD, ensuring a
 | Phase 1.1 Project & Rendering | In Progress | ~95% |
 | Phase 1.2 OCCT Kernel | Partial | ~40% |
 | Phase 1.3 Topological Naming | Substantial | ~90% |
-| Phase 1.4 Command & Document | In Progress | ~75% |
+| Phase 1.4 Command & Document | In Progress | ~85% |
 | Phase 2 Sketching Engine | **Complete** | **100%** |
-| **Phase 3 Solid Modeling** | **In Progress** | **~45%** |
+| **Phase 3 Solid Modeling** | **In Progress** | **~65%** |
 | ↳ 3.1 I/O Foundation | Not Started | 0% |
 | ↳ 3.2 Parametric Engine | Not Started | 0% |
-| ↳ 3.3 Modeling Operations | In Progress | ~60% |
+| ↳ 3.3 Modeling Operations | **Complete** | **100%** |
 | ↳ 3.4 Pattern Operations | Not Started | 0% |
-| ↳ 3.5 UI Polish | Not Started | 0% |
+| ↳ 3.5 UI Polish | In Progress | ~20% |
 | Phase 4 Advanced Modeling | Not Started | 0% |
 | Phase 5 Optimization & Release | Not Started | 0% |
 
 **Key Achievements:**
 - ✅ PlaneGCS solver fully integrated (1450 LOC, all 15 constraint types working)
 - ✅ Loop detection complete (1985 LOC with DFS, shoelace area, hole detection)
-- ✅ FaceBuilder OCCT integration complete (524 LOC cpp + 195 LOC header)
 - ✅ All 7 sketch tools production-ready (2618 LOC total)
 - ✅ SketchRenderer complete (2472 LOC with VBO, adaptive tessellation)
 - ✅ SnapManager complete (1166 LOC, 8 snap types)
 - ✅ AutoConstrainer complete (1091 LOC, 7 inference rules)
-- ✅ UI integration complete (ContextToolbar, ConstraintPanel, DimensionEditor, ViewCube)
-- ✅ Adaptive Grid3D spacing (pixel-targeted minor/major grid)
-- ✅ Selection system with deep select + click cycling
-- ✅ Mesh-based picking + 3D selection overlays (face/edge/vertex/body)
-- ✅ SceneMeshStore + BodyRenderer (Shaded+Edges + preview meshes)
 - ✅ Extrude v1a complete (SketchRegion → new body, preview, draft angle working)
-- ✅ CommandProcessor with full transaction support (undo/redo/group commands)
+- ✅ **Push/Pull Direct Modeling** (Face input, smart boolean Add/Cut detection)
+- ✅ **Fillet/Chamfer Tool** (Variable radius, drag interaction, tangent edge chaining)
+- ✅ **Shell Tool** (Hollow solid, multi-face opening, inward thickening)
+- ✅ **Boolean Operations** (Union, Cut, Intersect, smart mode detection)
+- ✅ **EdgeChainer** (Tangent continuity propagation for edge selection)
 - ✅ Revolve tool complete (Profile+Axis, drag interaction, boolean mode)
-- ✅ Boolean operations (Union/Cut via BRepAlgoAPI)
-- ✅ ModifyBodyCommand for boolean result updates
+- ✅ UI integration complete (ContextToolbar, ConstraintPanel, DimensionEditor, ViewCube)
+- ✅ Render Debug Panel added (visualizing normals, wireframes, bounds)
+- ✅ ModelNavigator enhancements (visibility toggling, selection filtering)
 
 ---
 
@@ -56,6 +55,7 @@ This document outlines the phased implementation strategy for OneCAD, ensuring a
 - [~] **Camera Controls**: Camera3D with Orbit, Pan, Zoom, standard views (270 LOC). *Missing: inertia physics, sticky pivot.*
 - [x] **Grid System**: Grid3D adaptive spacing implemented (pixel-targeted minor/major tiers).
 - [x] **Body Renderer**: Shaded + Edges renderer (SceneMeshStore-backed) with preview mesh support.
+- [x] **Debug Rendering**: Render Debug Panel for inspecting scene details.
 
 ### 1.2 OCCT Kernel Integration
 - [~] **Shape Wrappers**: Basic ElementMap structure exists. *Missing: full `onecad::kernel::Shape` decoupled wrapper.*
@@ -83,7 +83,8 @@ This document outlines the phased implementation strategy for OneCAD, ensuring a
 - [x] **Selection Manager**: Ray-casting picking, deep select, click cycling, hover/selection highlights.
 - [x] **Command Processor**: Execute/undo/redo with full transaction support (begin/end/cancel, command grouping). 197 LOC.
 - [x] **AddBodyCommand**: Working command for adding bodies to document.
-- [~] **Additional Commands**: Only AddBodyCommand implemented; other modeling commands pending.
+- [x] **ModifyBodyCommand**: Command for applying boolean/feature results to existing bodies.
+- [~] **Additional Commands**: Visibility toggling implemented; others pending.
 
 ---
 
@@ -150,8 +151,8 @@ This document outlines the phased implementation strategy for OneCAD, ensuring a
 
 ## Phase 3: Solid Modeling Operations
 **Focus:** Enabling 3D geometry creation, manipulation, and file I/O.
-**Status:** In Progress (~45% Complete)
-**Estimated Remaining:** ~7,300 LOC across 5 sub-phases
+**Status:** In Progress (~65% Complete)
+**Estimated Remaining:** ~4,800 LOC across 4 sub-phases
 
 ### Implementation Status Summary
 
@@ -159,9 +160,9 @@ This document outlines the phased implementation strategy for OneCAD, ensuring a
 |-----------|-------|--------|----------|
 | **3.1 I/O Foundation** | Save/Load + STEP | Not Started | ~1,400 |
 | **3.2 Parametric Engine** | History Replay | Not Started | ~1,900 |
-| **3.3 Modeling Operations** | Fillet/Shell/Push-Pull | In Progress | ~1,600 |
+| **3.3 Modeling Operations** | Fillet/Shell/Push-Pull | **Complete** | - |
 | **3.4 Pattern Operations** | Linear/Circular | Not Started | ~1,300 |
-| **3.5 UI Polish** | Command Search, Box Select | Not Started | ~1,100 |
+| **3.5 UI Polish** | Command Search, Box Select | In Progress | ~1,100 |
 
 ---
 
@@ -205,41 +206,28 @@ This document outlines the phased implementation strategy for OneCAD, ensuring a
 
 ---
 
-### 3.3 Modeling Operations (High Priority — P1)
+### 3.3 Modeling Operations (Complete — P1) ✅
 **Goal:** Complete core v1.0 modeling operations
-**Dependencies:** EdgeChainer for fillet
+**Status:** **100% Complete**
 
 #### Completed Operations
-- [x] **Extrude v1a** (439 LOC): SketchRegion input, preview, draft angle
-- [x] **Revolve** (427 LOC): Profile+Axis selection, drag interaction, boolean mode
-- [x] **Boolean Union/Cut** (92 LOC): BRepAlgoAPI_Fuse/Cut working
-
-#### Remaining Operations
-
-| Task | Files | Status | Est. LOC | OCCT API |
-|------|-------|--------|----------|----------|
-| **Fillet/Chamfer Tool** | `src/ui/tools/FilletChamferTool.h/cpp` | [ ] | 450 | BRepFilletAPI |
-| Edge chaining selection | `src/app/selection/EdgeChainer.h/cpp` | [ ] | 200 | - |
-| Boolean Intersect | `BooleanOperation.cpp` | [ ] | 50 | BRepAlgoAPI_Common |
-| **Push/Pull Tool** | `src/ui/tools/PushPullTool.h/cpp` | [ ] | 350 | Offset+Boolean |
-| **Shell Tool** | `src/ui/tools/ShellTool.h/cpp` | [ ] | 300 | BRepOffsetAPI_MakeThickSolid |
-| Revolve axis UI | RevolveTool.cpp | [~] | 100 | - |
-
-**Fillet/Chamfer Behavior:**
-- Combined tool: Drag out = fillet, drag in = chamfer
-- Variable radius: Per-vertex using BRepFilletAPI::Add with setpoints
-- Edge chain: Auto-propagate tangent continuous edges
-- Limit handling: Clamp silently to max valid radius
-
-**Push/Pull Behavior:**
-- Auto-activates when user selects planar face
-- Drag arrow appears on face center immediately
-- Direction determines add (union) vs remove (cut)
-
-**Shell Behavior:**
-- Select body, then faces to open
-- Single thickness value for v1.0
-- OCCT: BRepOffsetAPI_MakeThickSolid
+- [x] **Extrude / Push-Pull** (ExtrudeTool.cpp): 
+    - ✅ SketchRegion input with preview & draft angle
+    - ✅ Face input (Push/Pull) with auto-boolean detection (Add/Cut)
+    - ✅ Smart Boolean override logic
+- [x] **Revolve** (RevolveTool.cpp): Profile+Axis selection, drag interaction, boolean mode.
+- [x] **Fillet/Chamfer** (FilletChamferTool.cpp): 
+    - ✅ Combined tool (drag right=fillet, left=chamfer)
+    - ✅ Variable radius with real-time preview
+    - ✅ Edge chaining via `EdgeChainer` (tangent propagation)
+- [x] **Shell** (ShellTool.cpp):
+    - ✅ Hollow solid creation (`BRepOffsetAPI_MakeThickSolid`)
+    - ✅ Multi-face opening selection
+    - ✅ Inward thickening with validation
+- [x] **Boolean Operations** (BooleanOperation.cpp):
+    - ✅ Union/Cut/Intersect (Add/Subtract/Common)
+    - ✅ `ModifyBodyCommand` integration
+- [x] **Utilities**: `EdgeChainer` (BFS tangent search), `BooleanOperation` (mode detection).
 
 ---
 
@@ -273,7 +261,8 @@ This document outlines the phased implementation strategy for OneCAD, ensuring a
 | Camera inertia | Camera3D.cpp | [ ] | 150 |
 | Box selection | SelectionManager + Viewport | [ ] | 200 |
 | DOF color wiring | SketchRenderer + UI | [ ] | 100 |
-| Cursor mode feedback | Viewport overlay | [ ] | 50 |
+| **Model Navigator** | ModelNavigator.cpp | [~] | 200 |
+| **Debug Panel** | RenderDebugPanel.cpp | [x] | 250 |
 
 ---
 
@@ -336,23 +325,18 @@ This document outlines the phased implementation strategy for OneCAD, ensuring a
 ## Priority Recommendations
 
 ### ✅ COMPLETED SINCE LAST UPDATE
-1. ~~Implement SketchRenderer~~ → **DONE** (1955 LOC production)
-2. ~~Create MakeFace wrapper~~ → **DONE** (FaceBuilder 719 LOC)
-3. ~~Add Rectangle/Ellipse tools~~ → **DONE** (all 7 tools complete)
-4. ~~Implement SnapManager~~ → **DONE** (1166 LOC, 8 snap types)
-5. ~~Fix Grid3D adaptive spacing~~ → **DONE** (pixel-targeted minor/major tiers)
-6. ~~Integrate ElementMap into Document~~ → **DONE** (body registration + tessellation IDs)
-7. ~~Implement Selection Manager~~ → **DONE** (deep select, click cycling, 3D picking)
-8. ~~Add Shaded + Edges renderer~~ → **DONE** (SceneMeshStore-backed)
-9. ~~Implement Extrude v1a~~ → **DONE** (SketchRegion → new body, preview, auto-commit)
-10. ~~Add CommandProcessor~~ → **DONE** (execute/undo/redo + AddBodyCommand)
+1. ~~Implement Push/Pull Direct Modeling~~ → **DONE** (ExtrudeTool face support)
+2. ~~Implement Fillet/Chamfer Tool~~ → **DONE** (FilletChamferTool)
+3. ~~Implement Shell Tool~~ → **DONE** (ShellTool)
+4. ~~Implement Boolean Operations~~ → **DONE** (Union/Cut/Intersect)
+5. ~~Implement Edge Chaining~~ → **DONE** (EdgeChainer)
+6. ~~Enhance Model Navigator~~ → **DONE** (Visibility/Filtering)
+7. ~~Add Render Debug Panel~~ → **DONE**
 
 ### Immediate Next Steps (High Priority for Phase 3)
-1. **Extrude v1b smart boolean** — Add/Cut detection based on extrude direction + override enum plumbed to UI.
-2. **Face extrude input** — Extend ExtrudeTool to accept face selection (not just SketchRegion).
-3. **Revolve operation** — Axis selection + angle parameter + preview.
-4. **Boolean operations** — Union/Subtract/Intersect with multi-body selection.
-5. **Native `.onecad` save/load v0** — BREP + ElementMap + operation list serialization.
+1. **Native `.onecad` save/load v0** — BREP + ElementMap + operation list serialization (P0 Critical).
+2. **History replay + persistence** — DependencyGraph and RegenerationEngine (P0 Critical).
+3. **Step Import/Export** — Interoperability (P1).
 
 ### Short-term (Medium Priority - UX Polish)
 1. Add Camera inertia physics and sticky pivot (270 LOC existing base).
@@ -361,17 +345,12 @@ This document outlines the phased implementation strategy for OneCAD, ensuring a
 4. Add contextual tool badges (boolean override, direction flip).
 
 ### Blocking Items for Phase 3
-- ✅ ~~MakeFace wrapper~~ → COMPLETE (FaceBuilder 524 LOC)
-- ✅ ~~SketchRenderer~~ → COMPLETE (2472 LOC)
-- ✅ ~~ElementMap Document integration~~ → COMPLETE
-- ✅ ~~Grid3D adaptive spacing~~ → COMPLETE
-- ✅ ~~Extrude v1a~~ → COMPLETE (282 LOC, draft angle working)
-- ✅ ~~CommandProcessor~~ → COMPLETE (197 LOC, transactions)
+- ✅ ~~Modeling Operations~~ → COMPLETE (100%)
 - ⚠️ **History replay + persistence** → REQUIRED for robust parametric workflows
 - ⚠️ **I/O layer** → Not implemented (src/io/ empty)
 
 ---
 
-*Document Version: 4.2*
-*Last Updated: 2026-01-06*
-*Major Update: Verified Extrude v1a with draft angle, CommandProcessor with transactions, updated LOC counts*
+*Document Version: 4.3*
+*Last Updated: 2026-01-09*
+*Major Update: Completed Phase 3.3 (All Modeling Ops: Fillet, Shell, Push/Pull, Boolean)*
