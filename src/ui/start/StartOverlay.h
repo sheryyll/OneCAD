@@ -7,9 +7,10 @@
 
 #include <QWidget>
 #include <QStringList>
+#include <QMetaObject>
 
 class QLabel;
-class QGridLayout;
+class QVBoxLayout;
 
 namespace onecad::ui {
 
@@ -30,6 +31,7 @@ protected:
     void showEvent(QShowEvent* event) override;
 
 private:
+    void applyTheme();
     void rebuildRecentGrid();
     void handleNewProject();
     void handleOpenProject();
@@ -37,9 +39,10 @@ private:
 
     QStringList projects_;
     QWidget* recentContainer_ = nullptr;
-    QGridLayout* recentGrid_ = nullptr;
+    QVBoxLayout* recentLayout_ = nullptr;
     QLabel* recentEmptyLabel_ = nullptr;
     QWidget* panel_ = nullptr;
+    QMetaObject::Connection themeConnection_;
 };
 
 } // namespace onecad::ui

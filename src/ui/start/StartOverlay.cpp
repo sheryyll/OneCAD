@@ -4,6 +4,7 @@
  */
 
 #include "StartOverlay.h"
+#include "../theme/ThemeManager.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -85,13 +86,14 @@ StartOverlay::StartOverlay(QWidget* parent)
     panelLayout->addWidget(recentLabel);
 
     recentContainer_ = new QWidget(panel_);
-    recentGrid_ = new QGridLayout(recentContainer_);
-    recentGrid_->setContentsMargins(0, 0, 0, 0);
-    recentGrid_->setSpacing(12);
+    recentLayout_ = new QVBoxLayout(recentContainer_);
+    recentLayout_->setContentsMargins(0, 0, 0, 0);
+    recentLayout_->setSpacing(8);
 
     auto* scroll = new QScrollArea(panel_);
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setMinimumHeight(260);
     scroll->setWidget(recentContainer_);
     panelLayout->addWidget(scroll);
 
@@ -105,35 +107,98 @@ StartOverlay::StartOverlay(QWidget* parent)
     connect(newButton, &QPushButton::clicked, this, &StartOverlay::handleNewProject);
     connect(openButton, &QPushButton::clicked, this, &StartOverlay::handleOpenProject);
 
-    setStyleSheet(
+    themeConnection_ = connect(&ThemeManager::instance(), &ThemeManager::themeChanged,
+                               this, &StartOverlay::applyTheme, Qt::UniqueConnection);
+    applyTheme();
+}
+
+void StartOverlay::applyTheme() {
+    const auto& theme = ThemeManager::instance().currentTheme();
+    const auto& ui = theme.ui;
+
+    QColor base = ui.windowBackground;
+    QColor glow = base.lighter(theme.isDark ? 120 : 108);
+    QColor edge = base.darker(theme.isDark ? 130 : 105);
+
+    QColor panelBg = ui.inspectorBackground.isValid() ? ui.inspectorBackground : ui.panelBackground;
+    QColor panelBorder = ui.panelBorder;
+
+    QColor titleColor = ui.widgetText;
+    QColor subtitleColor = ui.inspectorHintText.isValid() ? ui.inspectorHintText : ui.widgetText;
+
+    QColor primaryBg = ui.toolButtonPressedBackground;
+    QColor primaryHover = ui.menuItemSelectedBackground.isValid()
+        ? ui.menuItemSelectedBackground
+        : primaryBg.lighter(110);
+    QColor primaryPressed = ui.toolButtonPressedBorder.isValid()
+        ? ui.toolButtonPressedBorder
+        : primaryBg.darker(110);
+    QColor primaryText = ui.menuItemSelectedText.isValid() ? ui.menuItemSelectedText : ui.widgetText;
+
+    QColor secondaryBg = ui.toolButtonBackground;
+    QColor secondaryBorder = ui.toolButtonBorder;
+    QColor secondaryHover = ui.toolButtonHoverBackground;
+    QColor secondaryText = ui.toolButtonText;
+
+    QColor recentBg = Qt::transparent;
+    QColor recentBorder = Qt::transparent;
+    QColor recentHover = ui.treeHoverBackground.isValid() ? ui.treeHoverBackground : secondaryHover;
+    QColor recentText = ui.widgetText;
+
+    QString styleSheet = QStringLiteral(
         "#StartOverlay {"
         "  background: qradialgradient(cx:0.2, cy:0.1, radius:1,"
-        "    stop:0 #f8f6f0, stop:0.55 #efeae1, stop:1 #e2dbcf);"
+        "    stop:0 %1, stop:0.55 %2, stop:1 %3);"
         "  font-family: 'Avenir Next', 'Avenir', 'Helvetica Neue', sans-serif;"
         "}"
         "QWidget#panel {"
-        "  background: #ffffff;"
-        "  border: 1px solid #e0dbd1;"
+        "  background: %4;"
+        "  border: 1px solid %5;"
         "  border-radius: 18px;"
         "}"
-        "QLabel#title { font-size: 22px; font-weight: 600; color: #1f1c18; }"
-        "QLabel#subtitle { font-size: 13px; color: #6b6256; }"
-        "QLabel#sectionTitle { font-size: 13px; font-weight: 600; color: #3e3830; }"
+        "QLabel#title { background: transparent; font-size: 22px; font-weight: 600; color: %6; }"
+        "QLabel#subtitle { background: transparent; font-size: 13px; color: %7; }"
+        "QLabel#sectionTitle { background: transparent; font-size: 13px; font-weight: 600; color: %6; }"
         "QPushButton#primaryTile {"
-        "  background: #1b1a17; color: #f5f3ee; border-radius: 14px;"
+        "  background: %8; color: %9; border-radius: 14px;"
         "  font-size: 16px; font-weight: 600; }"
-        "QPushButton#primaryTile:hover { background: #272522; }"
+        "QPushButton#primaryTile:hover { background: %10; }"
+        "QPushButton#primaryTile:pressed { background: %11; }"
         "QPushButton#secondaryTile {"
-        "  background: #ffffff; color: #1b1a17; border-radius: 14px;"
-        "  border: 1px solid #d9d3c7; font-size: 16px; font-weight: 600; }"
-        "QPushButton#secondaryTile:hover { background: #f0ece4; }"
+        "  background: %12; color: %13; border-radius: 14px;"
+        "  border: 1px solid %14; font-size: 16px; font-weight: 600; }"
+        "QPushButton#secondaryTile:hover { background: %15; }"
         "QPushButton#recentTile {"
-        "  background: #ffffff; color: #201d18; border-radius: 10px;"
-        "  border: 1px solid #ded8cc; text-align: left; padding: 12px;"
+        "  background: %16; color: %17; border-radius: 10px;"
+        "  border: 1px solid %18; text-align: left; padding: 12px;"
         "  font-size: 13px; }"
-        "QPushButton#recentTile:hover { background: #f2ede5; }"
-        "QLabel#emptyState { color: #6b6256; font-size: 13px; }"
-    );
+        "QPushButton#recentTile:hover { background: %19; }"
+        "QLabel#emptyState { background: transparent; color: %7; font-size: 13px; }"
+        "QScrollArea { background: transparent; }"
+        "QScrollArea > QWidget { background: transparent; }"
+        "QScrollArea > QWidget > QWidget { background: transparent; }"
+    )
+        .arg(toQssColor(glow),
+             toQssColor(base),
+             toQssColor(edge),
+             toQssColor(panelBg),
+             toQssColor(panelBorder),
+             toQssColor(titleColor),
+             toQssColor(subtitleColor),
+             toQssColor(primaryBg),
+             toQssColor(primaryText),
+             toQssColor(primaryHover),
+             toQssColor(primaryPressed),
+             toQssColor(secondaryBg),
+             toQssColor(secondaryText),
+             toQssColor(secondaryBorder),
+             toQssColor(secondaryHover),
+             toQssColor(recentBg),
+             toQssColor(recentText),
+             toQssColor(recentBorder),
+             toQssColor(recentHover));
+
+    setStyleSheet(styleSheet);
 }
 
 void StartOverlay::setProjects(const QStringList& projects) {
@@ -142,7 +207,7 @@ void StartOverlay::setProjects(const QStringList& projects) {
 }
 
 void StartOverlay::rebuildRecentGrid() {
-    while (QLayoutItem* item = recentGrid_->takeAt(0)) {
+    while (QLayoutItem* item = recentLayout_->takeAt(0)) {
         if (item->widget()) {
             item->widget()->deleteLater();
         }
@@ -152,13 +217,10 @@ void StartOverlay::rebuildRecentGrid() {
     if (projects_.isEmpty()) {
         recentEmptyLabel_ = new QLabel(tr("No projects yet."));
         recentEmptyLabel_->setObjectName("emptyState");
-        recentGrid_->addWidget(recentEmptyLabel_, 0, 0);
+        recentLayout_->addWidget(recentEmptyLabel_);
+        recentLayout_->addStretch();
         return;
     }
-
-    const int columns = 2;
-    int row = 0;
-    int col = 0;
 
     for (const QString& path : projects_) {
         QFileInfo info(path);
@@ -168,21 +230,17 @@ void StartOverlay::rebuildRecentGrid() {
         auto* tile = new QPushButton(QString("%1\n%2").arg(title, subtitle));
         tile->setObjectName("recentTile");
         tile->setCursor(Qt::PointingHandCursor);
-        tile->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-        tile->setMinimumHeight(74);
+        tile->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        tile->setFixedHeight(74);
         tile->setToolTip(subtitle);
 
         connect(tile, &QPushButton::clicked, this, [this, path]() {
             handleRecentClicked(path);
         });
 
-        recentGrid_->addWidget(tile, row, col);
-        col++;
-        if (col >= columns) {
-            col = 0;
-            row++;
-        }
+        recentLayout_->addWidget(tile);
     }
+    recentLayout_->addStretch();
 }
 
 void StartOverlay::handleNewProject() {

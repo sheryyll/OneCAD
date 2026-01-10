@@ -551,13 +551,62 @@ void MainWindow::setupNavigatorOverlayButton() {
     positionNavigatorOverlayButton();
 }
 
+void MainWindow::setupHomeOverlayButton() {
+    if (!m_viewport) {
+        return;
+    }
+
+    m_homeOverlayButton = SidebarToolButton::fromSvgIcon(
+        ":/icons/ic_home.svg",
+        tr("Return to Home"),
+        m_viewport
+    );
+    m_homeOverlayButton->setFixedSize(42, 42);
+    m_homeOverlayButton->setVisible(true);
+
+    connect(m_homeOverlayButton, &SidebarToolButton::clicked, this, [this]() {
+        if (!m_startOverlay) {
+            return;
+        }
+
+        if (!hasOpenProject()) {
+            showStartDialog();
+            return;
+        }
+
+        onSaveDocument();
+        if (m_document && m_document->isModified()) {
+            return;
+        }
+
+        resetDocumentState();
+        showStartDialog();
+    });
+
+    positionHomeOverlayButton();
+}
+
+void MainWindow::positionHomeOverlayButton() {
+    if (!m_viewport || !m_homeOverlayButton) {
+        return;
+    }
+
+    const int margin = 20;
+    m_homeOverlayButton->move(margin, margin);
+    m_homeOverlayButton->raise();
+}
+
 void MainWindow::positionNavigatorOverlayButton() {
     if (!m_viewport || !m_navigatorOverlayButton) {
         return;
     }
 
     const int margin = 20;
-    m_navigatorOverlayButton->move(margin, margin);
+    int y = margin;
+    if (m_homeOverlayButton) {
+        y = m_homeOverlayButton->y() + m_homeOverlayButton->height() + 10;
+    }
+    m_navigatorOverlayButton->move(margin, y);
     m_navigatorOverlayButton->raise();
 }
 
@@ -648,6 +697,8 @@ void MainWindow::positionRenderDebugButton() {
     int y = margin;
     if (m_navigatorOverlayButton) {
         y = m_navigatorOverlayButton->y() + m_navigatorOverlayButton->height() + 10;
+    } else if (m_homeOverlayButton) {
+        y = m_homeOverlayButton->y() + m_homeOverlayButton->height() + 10;
     }
     m_renderDebugButton->move(x, y);
     m_renderDebugButton->raise();
@@ -793,6 +844,7 @@ void MainWindow::setupViewport() {
         }
     });
 
+    setupHomeOverlayButton();
     setupNavigatorOverlayButton();
     setupRenderDebugOverlay();
 
@@ -835,6 +887,7 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
 
     if (obj == m_viewport && event->type() == QEvent::Resize) {
         positionToolbarOverlay();
+        positionHomeOverlayButton();
         positionNavigatorOverlayButton();
         positionRenderDebugButton();
         positionRenderDebugPanel();
@@ -1096,6 +1149,7 @@ void MainWindow::onNewDocument() {
     if (m_startOverlay && m_startOverlay->isVisible()) {
         m_startOverlay->hide();
     }
+    statusBar()->show();
 }
 
 QString MainWindow::defaultProjectDirectory() const {
@@ -1153,6 +1207,7 @@ bool MainWindow::loadDocumentFromPath(const QString& fileName) {
     if (m_startOverlay && m_startOverlay->isVisible()) {
         m_startOverlay->hide();
     }
+    statusBar()->show();
     return true;
 }
 
@@ -1191,6 +1246,47 @@ bool MainWindow::saveDocumentToPath(const QString& filePath) {
         m_toolStatus->setText(tr("Saved"));
     }
     return true;
+}
+
+bool MainWindow::hasOpenProject() const {
+    if (!m_document) {
+        return false;
+    }
+
+    if (!m_currentFilePath.isEmpty()) {
+        return true;
+    }
+
+    if (m_document->isModified()) {
+        return true;
+    }
+
+    return m_document->sketchCount() > 0 || m_document->bodyCount() > 0;
+}
+
+void MainWindow::resetDocumentState() {
+    if (m_viewport && m_viewport->isInSketchMode()) {
+        onExitSketch();
+    }
+
+    if (m_commandProcessor) {
+        m_commandProcessor->clear();
+    }
+
+    if (m_document) {
+        m_document->clear();
+    }
+
+    m_activeSketchId.clear();
+    m_currentFilePath.clear();
+    setWindowTitle(tr("OneCAD - Untitled"));
+    if (m_toolStatus) {
+        m_toolStatus->setText(tr("Ready"));
+    }
+
+    if (m_viewport) {
+        m_viewport->update();
+    }
 }
 
 void MainWindow::onSaveDocument() {
@@ -1267,6 +1363,7 @@ void MainWindow::showStartDialog() {
         return;
     }
     m_startOverlay->setProjects(listProjectsInDefaultDirectory());
+    statusBar()->hide();
     m_startOverlay->show();
     positionStartOverlay();
     m_startOverlay->raise();

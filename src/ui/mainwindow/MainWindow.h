@@ -86,7 +86,9 @@ private:
     void updateDofStatus(core::sketch::Sketch* sketch);
     void applyDofStatusStyle();
     void positionToolbarOverlay();
+    void setupHomeOverlayButton();
     void setupNavigatorOverlayButton();
+    void positionHomeOverlayButton();
     void positionNavigatorOverlayButton();
     void setupRenderDebugOverlay();
     void positionRenderDebugButton();
@@ -98,6 +100,8 @@ private:
     void showStartDialog();
     bool loadDocumentFromPath(const QString& fileName);
     bool saveDocumentToPath(const QString& filePath);
+    bool hasOpenProject() const;
+    void resetDocumentState();
     QString defaultProjectDirectory() const;
     QStringList listProjectsInDefaultDirectory() const;
 
@@ -107,6 +111,7 @@ private:
     Viewport* m_viewport = nullptr;
     ModelNavigator* m_navigator = nullptr;
     ContextToolbar* m_toolbar = nullptr;
+    SidebarToolButton* m_homeOverlayButton = nullptr;
     SidebarToolButton* m_navigatorOverlayButton = nullptr;
     SidebarToolButton* m_renderDebugButton = nullptr;
     ConstraintPanel* m_constraintPanel = nullptr;

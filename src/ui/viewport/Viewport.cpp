@@ -2681,6 +2681,22 @@ void Viewport::setDocument(app::Document* document) {
             syncModelMeshes();
             update();
         });
+        connect(m_document, &app::Document::documentCleared, this, [this]() {
+            if (m_inSketchMode) {
+                exitSketchMode();
+            }
+            m_referenceSketchId.clear();
+            m_referenceSketch = nullptr;
+            if (m_sketchRenderer) {
+                m_sketchRenderer->setSketch(nullptr);
+            }
+            m_documentSketchesDirty = true;
+            clearModelPreviewMeshes();
+            clearPreviewHiddenBody();
+            updateModelSelectionFilter();
+            syncModelMeshes();
+            update();
+        });
     }
 
     updateModelSelectionFilter();
