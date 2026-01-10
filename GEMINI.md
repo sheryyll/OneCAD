@@ -9,16 +9,34 @@ OneCAD is a free, open-source 3D CAD application designed for makers and hobbyis
 - **UI Framework:** Qt 6 (Widgets + OpenGL)
 - **Geometry Kernel:** OpenCASCADE Technology (OCCT)
 - **Math:** Eigen3
-- **Constraint Solver:** PlaneGCS (planned integration)
+- **Constraint Solver:** PlaneGCS (integrated static lib)
+- **File Format:** Custom ZIP-based `.onecad` with JSON + BREP
 
 ## Directory Structure
-- `src/app/`: Application layer (entry point logic, commands, tools).
-- `src/core/`: Core CAD logic (sketching, modeling operations).
+- `src/app/`: Application layer.
+    - `commands/`: Command pattern implementation (Undo/Redo).
+    - `document/`: Document model, OperationRecord.
+    - `history/`: Parametric history, DependencyGraph, RegenerationEngine.
+- `src/core/`: Core CAD logic.
+    - `sketch/`: Sketch entities, SolverAdapter, PlaneGCS wrapper.
+    - `loop/`: LoopDetector, FaceBuilder (Sketch regions to Faces).
+    - `modeling/`: Solid operations (Extrude, Revolve, Boolean).
 - `src/kernel/`: Geometry kernel wrappers and the **ElementMap** topological naming system.
-- `src/render/`: Qt RHI rendering pipeline (Metal on macOS).
-- `src/ui/`: Qt Widgets user interface (MainWindow, Inspector, Toolbar).
-- `src/io/`: Import/Export (Native .onecad, STEP).
-- `tests/`: Prototype executables and future test suites.
+- `src/render/`: Qt RHI rendering pipeline (Metal on macOS), Camera3D, Grid3D.
+- `src/ui/`: Qt Widgets user interface.
+    - `mainwindow/`: Main window layout.
+    - `viewport/`: OpenGL viewport, RenderDebugPanel.
+    - `tools/`: Sketch and Modeling tool implementations.
+    - `history/`: History panel, feature parameters.
+    - `navigator/`: Scene graph, visibility/selection control.
+    - `start/`: Project browser overlay.
+- `src/io/`: Import/Export layer.
+    - Native `.onecad` (ZipPackage) and directory-based `.onecadpkg`.
+    - JSON serialization (Sketches, Manifest, History).
+    - STEP Import/Export.
+- `tests/`:
+    - `prototypes/`: Isolated test executables for core systems.
+- `docs/`: Project documentation and research.
 
 ## Build & Run
 The project uses a standard CMake out-of-source build workflow.
@@ -27,6 +45,7 @@ The project uses a standard CMake out-of-source build workflow.
 - Xcode Command Line Tools
 - Homebrew
 - Dependencies: `cmake`, `qt`, `opencascade`, `eigen`
+- **PlaneGCS**: Included as a static library in `third_party/planegcs`.
 
 ### Commands
 ```bash
@@ -42,9 +61,12 @@ make -j$(sysctl -n hw.ncpu)
 # 4. Run Application
 ./OneCAD
 
-# 5. Run Prototypes (e.g., Topological Naming test)
+# 5. Run Prototypes (Examples)
 cmake --build . --target proto_tnaming
 ./tests/prototypes/proto_tnaming
+
+cmake --build . --target proto_sketch_solver
+./tests/prototypes/proto_sketch_solver
 ```
 
 ## Development Conventions
@@ -62,24 +84,32 @@ cmake --build . --target proto_tnaming
 ### Architecture Notes
 1.  **ElementMap (Topological Naming):**
     - Located in `src/kernel/elementmap/ElementMap.h`.
-    - **CRITICAL:** This system tracks topology (Faces, Edges, Vertices) through boolean operations using persistent UUIDs and geometric descriptors. It is the foundation for parametric modeling. **Do not modify without understanding the descriptor matching and hashing logic.**
-    - Use `ElementId` for all persistent references to geometry.
+    - **CRITICAL:** Tracks topology (Faces, Edges, Vertices) through boolean operations using persistent UUIDs and geometric descriptors.
+    - Foundation for parametric modeling. **Do not modify without understanding descriptor matching.**
 
-2.  **Application Singleton:**
-    - `onecad::app::Application` manages the app lifecycle and global state.
-    - Initialized in `src/main.cpp` before the UI.
+2.  **Sketch Engine & Solver:**
+    - Uses **PlaneGCS** for geometric constraint solving.
+    - `Sketch` entities (Lines, Arcs) are mapped to GCS objects via `SolverAdapter`.
+    - `LoopDetector` (graph-based DFS) converts sketch curves into closed regions (`TopoDS_Face`) for extrusion.
 
-3.  **Qt Integration:**
-    - `QSurfaceFormat` is configured in `main.cpp` to ensure correct OpenGL/Metal context versions (Core Profile 4.1+).
+3.  **Parametric History:**
+    - Operations are recorded in `OperationRecord`.
+    - `DependencyGraph` manages rebuild order.
+    - `RegenerationEngine` replays operations to rebuild the model from the base cache.
+
+4.  **Application Singleton:**
+    - `onecad::app::Application` manages lifecycle, global state, and the active `Document`.
 
 ## Current Status (as of Jan 2026)
-- **Foundation:** Setup complete. `ElementMap` is implemented. App shell exists.
-- **Missing:**
-    - Sketching Engine (Phase 2)
-    - Solid Modeling Operations (Phase 3)
-    - Full RHI Rendering Pipeline
+- **Phase 1 (Foundation):** COMPLETE. ElementMap, App Shell, Rendering.
+- **Phase 2 (Sketching):** COMPLETE. Full constraint solver, all sketch tools, loop detection.
+- **Phase 3 (Solid Modeling):** IN PROGRESS (~90%).
+    - **Done:** I/O (Save/Load/STEP), Modeling Ops (Extrude, Revolve, Boolean, Fillet, Chamfer, Shell).
+    - **In Progress:** Parametric history replay (UI polish needed).
+    - **Missing:** Pattern operations.
 
 ## Documentation
-- `SPECIFICATION.md`: The Single Source of Truth for features and UX.
-- `PHASES.md`: Implementation roadmap.
+- `docs/SPECIFICATION.md`: Single Source of Truth for features and UX.
+- `docs/PHASES.md`: Detailed implementation roadmap and status.
 - `AGENTS.md`: Guidelines for AI agents.
+- `docs/ELEMENT_MAP.md`: Details on the topological naming system.

@@ -96,6 +96,7 @@
 | Linear & circular patterns | | ✅ | | ❌ Moved |
 | Pattern along path | | | ✅ | ❌ |
 | Shell operation (basic) | ✅ | | | ⚠️ Single-face |
+| Parametric history (regen + edit Extrude/Revolve) | ✅ | | | ⚠️ Partial |
 | Spline/Bezier curves | | ✅ | | ❌ |
 | Text in sketches | | ✅ | | ❌ |
 | STEP import/export | ✅ | | | ✅ Done |
@@ -2138,18 +2139,19 @@ Traditional hierarchical context menu:
 
 ### 10.11 History Sidebar
 
-**Location:** Right panel (collapsible)
+**Location:** Right sidebar (collapsible, docked)
 
 **Purpose:** Interface for History-Based Parametric Modeling (HBPM)
 
 **Features:**
-- Chronological list of operations as "cards"
-- Hovering card highlights corresponding geometry
-- Click card to edit parameters
-- Rename steps for clarity
-- Suppress steps (temporarily disable)
-- Breakpoints to halt recomputation
-- Merge History to collapse steps
+- Dependency tree view (Sketch → Feature → downstream)
+- Double-click to edit parameters (Extrude/Revolve only)
+- Suppress/unsuppress features (undoable)
+- Rollback to a feature (suppresses downstream, undoable)
+- Delete feature (undoable)
+- Failure indicators with regenerate failure dialog (delete/suppress/cancel)
+
+**Toggle:** Overlay button + Cmd+H (mirrors navigator collapse behavior)
 
 **Bi-directional Linking:** "Left sidebar is what I have, Right sidebar is what I did"
 

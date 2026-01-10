@@ -15,9 +15,9 @@ This document outlines the phased implementation strategy for OneCAD, ensuring a
 | Phase 1.3 Topological Naming | **Complete** | ~95% |
 | Phase 1.4 Command & Document | **Complete** | **100%** |
 | Phase 2 Sketching Engine | **Complete** | **100%** |
-| **Phase 3 Solid Modeling** | **In Progress** | **~85%** |
+| **Phase 3 Solid Modeling** | **In Progress** | **~90%** |
 | ↳ 3.1 I/O Foundation | **Complete** | **100%** |
-| ↳ 3.2 Parametric Engine | Partial | ~25% |
+| ↳ 3.2 Parametric Engine | In Progress | ~70% |
 | ↳ 3.3 Modeling Operations | **Complete** | **100%** |
 | ↳ 3.4 Pattern Operations | Not Started | 0% |
 | ↳ 3.5 UI Polish | In Progress | ~40% |
@@ -41,6 +41,7 @@ This document outlines the phased implementation strategy for OneCAD, ensuring a
 - ✅ UI integration complete (ContextToolbar, ConstraintPanel, DimensionEditor, ViewCube)
 - ✅ Render Debug Panel added (visualizing normals, wireframes, bounds)
 - ✅ ModelNavigator enhancements (visibility toggling, selection filtering)
+- ✅ Parametric history replay (DependencyGraph + RegenerationEngine + HistoryPanel)
 - ✅ **Full I/O Layer** (OneCAD native format, STEP import/export, ZIP packaging)
 - ✅ **StartOverlay + ProjectTile** (Project browser with thumbnails)
 - ✅ **ThemeManager** (Light/Dark theme system, 885 LOC total)
@@ -158,14 +159,14 @@ This document outlines the phased implementation strategy for OneCAD, ensuring a
 ## Phase 3: Solid Modeling Operations
 **Focus:** Enabling 3D geometry creation, manipulation, and file I/O.
 **Status:** In Progress (~85% Complete)
-**Implemented:** ~6,500 LOC | **Remaining:** ~2,000 LOC (Patterns + Parametric UI)
+**Implemented:** ~7,600 LOC | **Remaining:** ~1,200 LOC (Patterns + UI polish)
 
 ### Implementation Status Summary
 
 | Sub-Phase | Focus | Status | Actual LOC |
 |-----------|-------|--------|------------|
 | **3.1 I/O Foundation** | Save/Load + STEP | **Complete** | ~2,400 |
-| **3.2 Parametric Engine** | History Replay | Partial | ~500 done |
+| **3.2 Parametric Engine** | History Replay | In Progress | ~1,600 done |
 | **3.3 Modeling Operations** | Fillet/Shell/Push-Pull | **Complete** | ~1,650 |
 | **3.4 Pattern Operations** | Linear/Circular | Not Started | 0 |
 | **3.5 UI Polish** | Command Search, Box Select | In Progress | ~1,400 |
@@ -209,39 +210,42 @@ This document outlines the phased implementation strategy for OneCAD, ensuring a
 
 ---
 
-### 3.2 Parametric Engine (Partial — ~25%)
+### 3.2 Parametric Engine (In Progress — ~70%)
 **Goal:** Enable edit-and-regenerate workflow
-**Status:** Data structures implemented, no regeneration logic yet
+**Status:** Full replay regeneration, history UI, suppression, and parameter editing for Extrude/Revolve
 
 | Task | Files | Status | LOC |
 |------|-------|--------|-----|
 | OperationRecord struct | `src/app/document/OperationRecord.h` | [x] | ~150 |
 | HistoryIO serialization | `src/io/HistoryIO.h/cpp` | [x] | 316 |
-| DependencyGraph | `src/app/history/DependencyGraph.h/cpp` | [ ] | - |
-| RegenerationEngine | `src/app/history/Regeneration.h/cpp` | [ ] | - |
-| History UI panel | `src/ui/history/HistoryPanel.h/cpp` | [ ] | - |
+| DependencyGraph | `src/app/history/DependencyGraph.h/cpp` | [x] | ~320 |
+| RegenerationEngine | `src/app/history/RegenerationEngine.h/cpp` | [x] | ~980 |
+| History UI panel | `src/ui/history/HistoryPanel.h/cpp` | [x] | ~520 |
+| EditParameterDialog | `src/ui/history/EditParameterDialog.h/cpp` | [x] | ~320 |
+| RegenFailureDialog | `src/ui/history/RegenFailureDialog.h/cpp` | [x] | ~120 |
 | Feature card widget | `src/ui/history/FeatureCard.h/cpp` | [ ] | - |
 
 **What's Implemented:**
-- ✅ `OperationRecord` struct with Extrude/Revolve support
-- ✅ `ExtrudeInput` variants: SketchRegionRef, FaceRef
-- ✅ `OperationParams` variants: ExtrudeParams, RevolveParams
-- ✅ BooleanMode enum: NewBody, Add, Cut, Intersect
-- ✅ HistoryIO: JSONL serialization of operations
-- ✅ Document stores operations vector
+- ✅ Full OperationRecord coverage (Extrude, Revolve, Fillet, Chamfer, Shell, Boolean)
+- ✅ DependencyGraph with deterministic topo sort
+- ✅ RegenerationEngine full replay (partial regen via downstream rebuild)
+- ✅ History panel (right sidebar, collapsible like navigator)
+- ✅ EditParameterDialog for Extrude/Revolve (live preview)
+- ✅ Suppress/rollback/delete operations with undo support
+- ✅ Failure tracking + RegenFailureDialog (load-time recovery)
+- ✅ DocumentIO regen path (BREP cache ignored when history exists)
 
 **What's Missing:**
-- ❌ DependencyGraph for tracking feature relationships
-- ❌ RegenerationEngine for replay/rebuild
-- ❌ History UI panel (no `src/ui/history/` directory exists)
-- ❌ Commands don't create OperationRecords (tools create records directly)
-- ❌ No feature suppression or editing workflow
+- ❌ Feature card widget (optional UI polish)
+- ❌ Reorder/history branching (fixed creation order only)
+- ❌ Partial regen caching (full replay only)
+- ❌ Pattern operations (Phase 3.4)
 
 **Behaviors (Planned):**
-- Regen failure → Rollback to last valid state
-- Feature suppression → Gray + skip in regen
+- Regen failure → Failure dialog (delete/suppress/cancel)
+- Feature suppression → Gray + skip in regen (implemented)
 - Feature reorder → Not allowed (fixed creation order)
-- History edit → Double-click opens parameter dialog
+- History edit → Double-click opens parameter dialog (Extrude/Revolve only)
 
 ---
 
@@ -406,8 +410,8 @@ This document outlines the phased implementation strategy for OneCAD, ensuring a
 ### Immediate Next Steps (High Priority)
 1. **Wire ShellTool multi-face selection** — Shift+click and Enter key in Viewport (P0 Quick Win)
 2. **Wire FilletChamferTool Tab key** — Mode toggle in Viewport (P0 Quick Win)
-3. **DependencyGraph + RegenerationEngine** — Full parametric replay (P1 Critical)
-4. **HistoryPanel UI** — Display operation history (P1)
+3. **History UI polish** — Feature cards + richer failure details (P1)
+4. **Partial regen caching** — Skip unaffected ops (P1)
 
 ### Short-term (Medium Priority - UX Polish)
 1. Implement Command Search (Cmd+K palette)
@@ -418,7 +422,7 @@ This document outlines the phased implementation strategy for OneCAD, ensuring a
 ### Blocking Items for Phase 3 Completion
 - ✅ ~~Modeling Operations~~ → COMPLETE (100%)
 - ✅ ~~I/O layer~~ → COMPLETE (100%)
-- ⚠️ **Parametric Engine** → PARTIAL (data structures done, no replay/UI)
+- ⚠️ **Parametric Engine** → IN PROGRESS (full replay + UI, caching pending)
 - ⚠️ **Pattern Operations** → NOT STARTED
 
 ### Codebase Statistics (2026-01-10)
