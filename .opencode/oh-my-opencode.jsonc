@@ -1,0 +1,82 @@
+{
+  "$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-opencode/master/assets/oh-my-opencode.schema.json",
+
+  // Keep Sisyphus orchestration on, but be explicit.
+  "sisyphus_agent": {
+    "disabled": false,
+    "planner_enabled": true,
+    "replace_plan": true
+  },
+
+  // Git integration settings
+  "git_master": {
+    "commit_footer": false,
+    "include_co_authored_by": true
+  },
+
+  // Background task concurrency
+  "background_task": {
+    "defaultConcurrency": 4,
+    "providerConcurrency": {
+      "anthropic": 2,
+      "openai": 3,
+      "google": 4
+    },
+    "modelConcurrency": {
+      "github-copilot/claude-sonnet-4.5": 2
+    }
+  },
+
+  // Curated agent customizations for CAD context
+  "agents": {
+    "oracle": {
+      "prompt_append": "When reviewing OneCAD code, prioritize:\n1. Topological naming invariants (ElementMap hash stability)\n2. OCCT Handle<> null checks before dereference\n3. PlaneGCS solver parameter binding correctness\n4. Sketch entity lifecycle consistency (EntityID = UUID)\n5. Qt/OpenGL thread safety\n6. Geometric correctness and numerical robustness\n7. Avoid assuming unimplemented features (feature history, STEP I/O, undo/redo)"
+    },
+    "explore": {
+      "permission": { "edit": "deny", "bash": "ask", "webfetch": "allow" },
+      "prompt_append": "For OneCAD exploration, always locate first:\n1. Sketch engine: src/core/sketch/ (entities, tools, constraints, solver)\n2. Kernel: src/kernel/elementmap/ElementMap.h (topological naming)\n3. Rendering: src/render/ (Camera3D, Grid3D, BodyRenderer)\n4. UI: src/ui/ (Viewport, tools, panels)\n5. I/O: src/io/ (placeholder; STEP/native formats not wired)\nNote non-standard coordinate mapping in SketchPlane::XY()."
+    },
+    "librarian": {
+      "prompt_append": "For OneCAD external references, prioritize:\n1. OpenCASCADE (OCCT) documentation and examples\n2. PlaneGCS constraint solver patterns\n3. Qt6 widgets and OpenGL integration\n4. CAD parametric modeling best practices\n5. BRep topology and Boolean operations"
+    }
+  },
+
+  // CAD-specific specialist categories for sisyphus_task
+  "categories": {
+    "geometry-kernel": {
+      "model": "github-copilot/claude-sonnet-4.5",
+      "temperature": 0.1,
+      "prompt_append": "You are the geometry/kernel specialist for OneCAD. Focus on:\n- OCCT BRep operations (TopoDS_*, BRepBuilderAPI_*, BRepAlgoAPI_*)\n- ElementMap topological naming (14-field descriptor hashing, ID persistence)\n- Shape evolution tracking (Modified/Generated/Deleted)\n- Numerical robustness and tolerance handling\n- Boolean operations correctness\nNote: ElementMap is header-only and used mainly by prototypes today.\nNever suppress OCCT exceptions. Always null-check Handle<> objects."
+    },
+    "sketching": {
+      "model": "github-copilot/claude-sonnet-4.5",
+      "temperature": 0.1,
+      "prompt_append": "You are the sketching specialist for OneCAD. Focus on:\n- PlaneGCS constraint solver (ConstraintSolver.cpp)\n- 15 constraint types (see constraints/Constraints.h)\n- Sketch tools (LineTool, ArcTool, CircleTool, etc.)\n- SnapManager (2mm radius, priority: Vertex > Endpoint > Midpoint...)\n- AutoConstrainer (±5° tolerance inference)\n- Loop detection and FaceBuilder OCCT bridge\n- EntityID = std::string UUID pattern\n- SketchPlane::XY() non-standard axis mapping\nPreserve solver parameter binding invariants."
+    },
+    "rendering": {
+      "model": "github-copilot/claude-sonnet-4.5",
+      "temperature": 0.2,
+      "prompt_append": "You are the rendering specialist for OneCAD. Focus on:\n- OpenGL 4.1 Core Profile pipeline\n- Camera3D orbit/pan/zoom (missing inertia = known issue)\n- Grid3D (fixed 10mm spacing, shader-based)\n- SketchRenderer (constraint visualization, DOF colors)\n- BodyRenderer + SceneMeshStore\n- ViewCube 3D navigation\n- Viewport picking and selection highlighting\nEnsure OpenGL state is properly managed (bind/unbind pairs)."
+    },
+    "interaction-ux": {
+      "model": "github-copilot/claude-sonnet-4.5",
+      "temperature": 0.3,
+      "prompt_append": "You are the UI/interaction specialist for OneCAD (Qt6 Widgets). Focus on:\n- MainWindow, Viewport, ModelNavigator architecture\n- ContextToolbar, SketchModePanel, ConstraintPanel\n- ThemeManager (Light/Dark, 885 LOC)\n- Qt signal/slot connections (Queued for cross-thread)\n- Parent ownership for memory management\n- DimensionEditor inline editing\nPropertyInspector exists but is not wired into the app yet.\nEnsure proper OpenGL context setup (must happen before QApplication)."
+    },
+    "perf-profiling": {
+      "model": "github-copilot/claude-sonnet-4.5",
+      "temperature": 0.1,
+      "prompt_append": "You are the performance specialist for OneCAD. Focus on:\n- Frame-time stability in Viewport render loop\n- Avoid per-frame allocations in SketchRenderer/BodyRenderer\n- TessellationCache reuse and mesh upload batching\n- Solver hot paths (PlaneGCS integration points)\n- Qt signal/slot churn during interactive tools\nPrefer profiling hypotheses backed by evidence."
+    },
+    "build-cmake": {
+      "model": "github-copilot/claude-sonnet-4.5",
+      "temperature": 0.2,
+      "prompt_append": "You are the build/CI specialist for OneCAD. Focus on:\n- CMake 3.25+ with C++20 enforcement\n- Qt6 setup (AUTOMOC, AUTORCC, AUTOUIC)\n- OCCT and Eigen3 dependency discovery\n- Ninja generator for fast builds\n- compile_commands.json for clangd\n- Prototype test targets in tests/CMakeLists.txt\n- macOS bundle configuration"
+    },
+    "tests": {
+      "model": "github-copilot/claude-sonnet-4.5",
+      "temperature": 0.2,
+      "prompt_append": "You are the testing specialist for OneCAD. Focus on:\n- Prototype executables (no ctest yet)\n- Sketch engine validation: proto_sketch_geometry, proto_sketch_constraints, proto_sketch_solver\n- Loop/face validation: proto_loop_detector, proto_face_builder\n- ElementMap validation: proto_elementmap_rigorous (REQUIRED for kernel changes)\n- UI compile check: test_compile\nAdd regression coverage for geometry operations. Keep tests deterministic."
+    }
+  }
+}
