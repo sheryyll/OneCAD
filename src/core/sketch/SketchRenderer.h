@@ -73,16 +73,17 @@ struct SketchColors {
  * @brief Rendering style options
  */
 struct SketchRenderStyle {
-    // Line widths (in pixels)
-    float normalLineWidth = 1.5f;
-    float constructionLineWidth = 1.0f;
-    float selectedLineWidth = 2.5f;
-    float previewLineWidth = 1.0f;
+    // Line widths (in pixels) – 2x thicker for visibility
+    float normalLineWidth = 4.0f;
+    float constructionLineWidth = 2.5f;
+    float selectedLineWidth = 6.0f;
+    float previewLineWidth = 2.5f;
 
-    // Point sizes (in pixels)
-    float pointSize = 6.0f;
-    float selectedPointSize = 10.0f;
-    float snapPointSize = 8.0f;
+    // Point sizes (in pixels) – 2x bigger for visibility
+    float pointSize = 16.0f;
+    float selectedPointSize = 24.0f;
+    float snapPointSize = 16.0f;
+    float midpointPointSize = 10.0f;
 
     // Constraint icon size (in pixels)
     float constraintIconSize = 16.0f;

@@ -888,6 +888,20 @@ void SketchRendererImpl::buildVBOs(
             } else {
                 appendSolidPolyline(lineData, entity.vertices, color);
             }
+            // Line midpoint indicator (straight lines only)
+            if (entity.type == EntityType::Line && entity.vertices.size() == 2) {
+                const Vec2d mid = {
+                    (entity.vertices[0].x + entity.vertices[1].x) * 0.5,
+                    (entity.vertices[0].y + entity.vertices[1].y) * 0.5
+                };
+                pointData.push_back(static_cast<float>(mid.x));
+                pointData.push_back(static_cast<float>(mid.y));
+                pointData.push_back(static_cast<float>(color.x));
+                pointData.push_back(static_cast<float>(color.y));
+                pointData.push_back(static_cast<float>(color.z));
+                pointData.push_back(1.0f);
+                pointData.push_back(style.midpointPointSize);
+            }
         }
     }
 
@@ -897,7 +911,13 @@ void SketchRendererImpl::buildVBOs(
                 continue;
             }
         }
-
+        // Skip constraint icons drawn at line midpoints – we already draw one orange midpoint per line; avoids duplicate yellow dots. All of these use getIconPosition = line midpoint: Midpoint, Horizontal, Vertical, Angle, Parallel, Perpendicular, Equal.
+        if (icon.type == ConstraintType::Midpoint || icon.type == ConstraintType::Horizontal
+            || icon.type == ConstraintType::Vertical || icon.type == ConstraintType::Angle
+            || icon.type == ConstraintType::Parallel || icon.type == ConstraintType::Perpendicular
+            || icon.type == ConstraintType::Equal) {
+            continue;
+        }
         Vec3d color = icon.isConflicting ? style.colors.conflictHighlight : style.colors.constraintIcon;
         pointData.push_back(static_cast<float>(icon.position.x));
         pointData.push_back(static_cast<float>(icon.position.y));

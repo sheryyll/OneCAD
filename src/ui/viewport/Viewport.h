@@ -129,6 +129,7 @@ signals:
     void sketchPlanePicked(int planeIndex);
     void planeSelectionCancelled();
     void sketchUpdated();  // Emitted when geometry/constraints change
+    void openSketchForEditRequested(const QString& sketchId);
     void extrudeToolActiveChanged(bool active);
     void revolveToolActiveChanged(bool active);
     void filletToolActiveChanged(bool active);

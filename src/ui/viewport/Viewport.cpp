@@ -939,7 +939,7 @@ void Viewport::mouseDoubleClickEvent(QMouseEvent* event) {
             return;
         }
 
-        // Handle double-click Body selection
+        // Handle double-click: sketch part → open for edit; otherwise body selection
         if (event->button() == Qt::LeftButton) {
             auto pickResult = m_referenceSketch
                 ? buildModelPickResult(event->pos())
@@ -950,6 +950,20 @@ void Viewport::mouseDoubleClickEvent(QMouseEvent* event) {
 
             auto topCandidate = m_selectionManager->topCandidate(pickResult);
             if (topCandidate.has_value()) {
+                const auto kind = topCandidate->kind;
+                if (kind == app::selection::SelectionKind::SketchPoint ||
+                    kind == app::selection::SelectionKind::SketchEdge ||
+                    kind == app::selection::SelectionKind::SketchRegion) {
+                    const std::string sketchId = topCandidate->id.ownerId;
+                    if (m_document && !sketchId.empty()) {
+                        core::sketch::Sketch* sketch = m_document->getSketch(sketchId);
+                        if (sketch) {
+                            emit openSketchForEditRequested(QString::fromStdString(sketchId));
+                            return;
+                        }
+                    }
+                }
+
                 // Construct a Body selection item from the hit
                 app::selection::SelectionItem bodyItem;
                 bodyItem.kind = app::selection::SelectionKind::Body;

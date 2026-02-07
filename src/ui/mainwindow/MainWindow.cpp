@@ -949,12 +949,15 @@ void MainWindow::setupViewport() {
             this, &MainWindow::onPlaneSelectionCancelled);
     connect(m_viewport, &Viewport::sketchUpdated,
             this, &MainWindow::onSketchUpdated);
+    connect(m_viewport, &Viewport::openSketchForEditRequested,
+            this, &MainWindow::openSketchForEdit);
 
     connect(m_navigator, &ModelNavigator::sketchSelected, this, [this](const QString& id) {
         if (m_viewport) {
             m_viewport->setReferenceSketch(id);
         }
     });
+    connect(m_navigator, &ModelNavigator::editSketchRequested, this, &MainWindow::openSketchForEdit);
 
     setupNavigatorOverlayButton();
     setupHomeOverlayButton();
@@ -1125,6 +1128,24 @@ void MainWindow::onPlaneSelectionCancelled() {
     if (!m_viewport->isInSketchMode()) {
         m_toolStatus->setText(tr("Ready"));
     }
+}
+
+void MainWindow::openSketchForEdit(const QString& sketchId) {
+    if (sketchId.isEmpty() || !m_viewport || !m_document) {
+        return;
+    }
+    const std::string id = sketchId.toStdString();
+    m_viewport->setReferenceSketch(sketchId);
+    m_activeSketchId = id;
+    core::sketch::Sketch* sketchPtr = m_document->getSketch(m_activeSketchId);
+    if (!sketchPtr) {
+        m_activeSketchId.clear();
+        return;
+    }
+    m_viewport->enterSketchMode(sketchPtr);
+    QString sketchName = QString::fromStdString(m_document->getSketchName(id));
+    m_toolStatus->setText(tr("Sketch Mode - %1").arg(sketchName));
+    m_toolbar->setContext(ContextToolbar::Context::Sketch);
 }
 
 void MainWindow::onExitSketch() {

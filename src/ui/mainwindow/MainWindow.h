@@ -68,6 +68,7 @@ private slots:
     void onSketchModeChanged(bool inSketchMode);
     void onSketchPlanePicked(int planeIndex);
     void onPlaneSelectionCancelled();
+    void openSketchForEdit(const QString& sketchId);
     void onImport();
     void onMousePositionChanged(double x, double y, double z);
     void onSketchUpdated();
