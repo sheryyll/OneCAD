@@ -127,6 +127,88 @@ TestResult testOnCurveSnap() {
     return expectSnap(result, SnapType::OnCurve);
 }
 
+TestResult testEllipseCenterSnap() {
+    Sketch sketch;
+    EntityID center = sketch.addPoint(30.0, 30.0);
+    sketch.addEllipse(center, 6.0, 4.0, 0.0);
+
+    SnapManager manager = createSnapManagerFor({SnapType::Center});
+    SnapResult result = manager.findBestSnap({30.2, 30.1}, sketch);
+    TestResult check = expectSnap(result, SnapType::Center);
+    if (!check.pass) {
+        return check;
+    }
+    if (!approx(result.position.x, 30.0) || !approx(result.position.y, 30.0)) {
+        return {false, "(30,30)", "(" + std::to_string(result.position.x) + "," + std::to_string(result.position.y) + ")"};
+    }
+    return {true, "", ""};
+}
+
+TestResult testEllipseQuadrantSnap() {
+    Sketch sketch;
+    EntityID center = sketch.addPoint(30.0, 30.0);
+    sketch.addEllipse(center, 6.0, 4.0, 0.0);
+
+    SnapManager manager = createSnapManagerFor({SnapType::Quadrant});
+    SnapResult result = manager.findBestSnap({36.1, 30.2}, sketch);
+    TestResult check = expectSnap(result, SnapType::Quadrant);
+    if (!check.pass) {
+        return check;
+    }
+    if (!approx(result.position.x, 36.0, 1e-5) || !approx(result.position.y, 30.0, 1e-5)) {
+        return {false, "(36,30)", "(" + std::to_string(result.position.x) + "," + std::to_string(result.position.y) + ")"};
+    }
+    return {true, "", ""};
+}
+
+TestResult testEllipseOnCurveSnap() {
+    Sketch sketch;
+    EntityID center = sketch.addPoint(30.0, 30.0);
+    sketch.addEllipse(center, 6.0, 4.0, 0.0);
+
+    SnapManager manager = createSnapManagerFor({SnapType::OnCurve});
+    SnapResult result = manager.findBestSnap({35.3, 32.2}, sketch);
+    return expectSnap(result, SnapType::OnCurve);
+}
+
+TestResult testEllipseLineIntersection() {
+    Sketch sketch;
+    EntityID center = sketch.addPoint(30.0, 30.0);
+    sketch.addEllipse(center, 6.0, 4.0, 0.0);
+    sketch.addLine(20.0, 30.0, 40.0, 30.0);
+
+    SnapManager manager = createSnapManagerFor({SnapType::Intersection});
+    SnapResult result = manager.findBestSnap({36.2, 30.1}, sketch);
+    TestResult check = expectSnap(result, SnapType::Intersection);
+    if (!check.pass) {
+        return check;
+    }
+    if (!approx(result.position.x, 36.0, 1e-5) || !approx(result.position.y, 30.0, 1e-5)) {
+        return {false, "(36,30)", "(" + std::to_string(result.position.x) + "," + std::to_string(result.position.y) + ")"};
+    }
+    return {true, "", ""};
+}
+
+TestResult testEllipseQuadrantRotated() {
+    Sketch sketch;
+    EntityID center = sketch.addPoint(30.0, 30.0);
+    sketch.addEllipse(center, 6.0, 4.0, M_PI / 4.0);
+
+    const double expected = 30.0 + 6.0 * std::sqrt(0.5);
+    SnapManager manager = createSnapManagerFor({SnapType::Quadrant});
+    SnapResult result = manager.findBestSnap({expected + 0.2, expected - 0.1}, sketch);
+    TestResult check = expectSnap(result, SnapType::Quadrant);
+    if (!check.pass) {
+        return check;
+    }
+    if (!approx(result.position.x, expected, 1e-5) || !approx(result.position.y, expected, 1e-5)) {
+        return {false,
+                "(" + std::to_string(expected) + "," + std::to_string(expected) + ")",
+                "(" + std::to_string(result.position.x) + "," + std::to_string(result.position.y) + ")"};
+    }
+    return {true, "", ""};
+}
+
 TestResult testGridSnap() {
     Sketch sketch = createTestSketch();
     SnapManager manager = createSnapManagerFor({SnapType::Grid});
@@ -211,8 +293,7 @@ bool shouldSkipInLegacy(const std::string& testName) {
         "horizontal_alignment",
         "vertical_alignment",
         "extension",
-        "spatial_hash",
-        "ellipse"
+        "spatial_hash"
     };
 
     for (const std::string& token : blocked) {
@@ -280,6 +361,11 @@ int main(int argc, char** argv) {
         {"test_quadrant_snap", testQuadrantSnap},
         {"test_intersection_snap", testIntersectionSnap},
         {"test_oncurve_snap", testOnCurveSnap},
+        {"test_ellipse_center_snap", testEllipseCenterSnap},
+        {"test_ellipse_quadrant_snap", testEllipseQuadrantSnap},
+        {"test_ellipse_oncurve_snap", testEllipseOnCurveSnap},
+        {"test_ellipse_line_intersection", testEllipseLineIntersection},
+        {"test_ellipse_quadrant_rotated", testEllipseQuadrantRotated},
         {"test_grid_snap", testGridSnap},
         {"test_priority_order", testPriorityOrder},
         {"test_spatial_hash_equivalent_to_bruteforce", testSpatialHashEquivalentToBruteforce}

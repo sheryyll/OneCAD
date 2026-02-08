@@ -9,8 +9,10 @@
 #include "SketchLine.h"
 #include "SketchArc.h"
 #include "SketchCircle.h"
+#include "SketchEllipse.h"
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace onecad::core::sketch {
 
@@ -347,6 +349,10 @@ void SnapManager::findCenterSnaps(
             const auto* circle = static_cast<const SketchCircle*>(entity.get());
             centerPt = sketch.getEntityAs<SketchPoint>(circle->centerPointId());
         }
+        else if (entity->type() == EntityType::Ellipse) {
+            const auto* ellipse = static_cast<const SketchEllipse*>(entity.get());
+            centerPt = sketch.getEntityAs<SketchPoint>(ellipse->centerPointId());
+        }
 
         if (!centerPt) continue;
 
@@ -436,6 +442,26 @@ void SnapManager::findQuadrantSnaps(
                 }
             }
         }
+        else if (entity->type() == EntityType::Ellipse) {
+            const auto* ellipse = static_cast<const SketchEllipse*>(entity.get());
+            const auto* centerPt = sketch.getEntityAs<SketchPoint>(ellipse->centerPointId());
+            if (!centerPt) continue;
+
+            const gp_Pnt2d centerPos = centerPt->position();
+            for (double angle : quadrantAngles) {
+                Vec2d quadPt = toVec2d(ellipse->pointAtParameter(centerPos, angle));
+                const double distSq = distanceSquared(cursorPos, quadPt);
+                if (distSq <= radiusSq) {
+                    results.push_back({
+                        .snapped = true,
+                        .type = SnapType::Quadrant,
+                        .position = quadPt,
+                        .entityId = entity->id(),
+                        .distance = std::sqrt(distSq)
+                    });
+                }
+            }
+        }
     }
 }
 
@@ -454,7 +480,8 @@ void SnapManager::findIntersectionSnaps(
         if (excludeEntities.count(entity->id())) continue;
         if (entity->type() == EntityType::Line ||
             entity->type() == EntityType::Arc ||
-            entity->type() == EntityType::Circle) {
+            entity->type() == EntityType::Circle ||
+            entity->type() == EntityType::Ellipse) {
             entities.push_back(entity.get());
         }
     }
@@ -545,6 +572,51 @@ void SnapManager::findOnCurveSnaps(
                 nearestPt = (dStart < dEnd) ? start : end;
                 found = true;
             }
+        }
+        else if (entity->type() == EntityType::Ellipse) {
+            const auto* ellipse = static_cast<const SketchEllipse*>(entity.get());
+            const auto* centerPt = sketch.getEntityAs<SketchPoint>(ellipse->centerPointId());
+            if (!centerPt) continue;
+
+            const gp_Pnt2d center = centerPt->position();
+            constexpr int sampleCount = 32;
+            const double step = TWO_PI / static_cast<double>(sampleCount);
+
+            auto pointAt = [&](double t) {
+                return toVec2d(ellipse->pointAtParameter(center, t));
+            };
+            auto distAt = [&](double t) {
+                return distanceSquared(cursorPos, pointAt(t));
+            };
+
+            int bestIndex = 0;
+            double bestDistSq = std::numeric_limits<double>::max();
+            for (int i = 0; i < sampleCount; ++i) {
+                const double t = static_cast<double>(i) * step;
+                const double d = distAt(t);
+                if (d < bestDistSq) {
+                    bestDistSq = d;
+                    bestIndex = i;
+                }
+            }
+
+            double left = (static_cast<double>(bestIndex) - 1.0) * step;
+            double right = (static_cast<double>(bestIndex) + 1.0) * step;
+
+            // Ternary search around best sampled segment.
+            for (int iter = 0; iter < 18; ++iter) {
+                const double m1 = left + (right - left) / 3.0;
+                const double m2 = right - (right - left) / 3.0;
+                if (distAt(m1) < distAt(m2)) {
+                    right = m2;
+                } else {
+                    left = m1;
+                }
+            }
+
+            const double bestT = 0.5 * (left + right);
+            nearestPt = pointAt(bestT);
+            found = true;
         }
 
         if (found) {
@@ -826,6 +898,88 @@ std::vector<Vec2d> SnapManager::findEntityIntersections(
         return true;
     };
 
+    auto getEllipseData = [&sketch](const SketchEllipse* ellipse,
+                                    Vec2d& center,
+                                    double& majorRadius,
+                                    double& minorRadius,
+                                    double& rotation) -> bool {
+        const auto* centerPt = sketch.getEntityAs<SketchPoint>(ellipse->centerPointId());
+        if (!centerPt) {
+            return false;
+        }
+        center = toVec2d(centerPt->position());
+        majorRadius = ellipse->majorRadius();
+        minorRadius = ellipse->minorRadius();
+        rotation = ellipse->rotation();
+        return majorRadius > 1e-12 && minorRadius > 1e-12;
+    };
+
+    auto lineEllipseIntersection = [](const Vec2d& lineStart,
+                                      const Vec2d& lineEnd,
+                                      const Vec2d& center,
+                                      double majorRadius,
+                                      double minorRadius,
+                                      double rotation) -> std::vector<Vec2d> {
+        std::vector<Vec2d> intersections;
+
+        const double cosR = std::cos(rotation);
+        const double sinR = std::sin(rotation);
+
+        auto toEllipseLocal = [&](const Vec2d& worldPt) {
+            const double dx = worldPt.x - center.x;
+            const double dy = worldPt.y - center.y;
+            return Vec2d{
+                dx * cosR + dy * sinR,
+                -dx * sinR + dy * cosR
+            };
+        };
+
+        auto fromEllipseLocal = [&](const Vec2d& localPt) {
+            return Vec2d{
+                center.x + localPt.x * cosR - localPt.y * sinR,
+                center.y + localPt.x * sinR + localPt.y * cosR
+            };
+        };
+
+        const Vec2d p0Local = toEllipseLocal(lineStart);
+        const Vec2d p1Local = toEllipseLocal(lineEnd);
+
+        const Vec2d p0{p0Local.x / majorRadius, p0Local.y / minorRadius};
+        const Vec2d p1{p1Local.x / majorRadius, p1Local.y / minorRadius};
+        const Vec2d d{p1.x - p0.x, p1.y - p0.y};
+
+        const double a = d.x * d.x + d.y * d.y;
+        const double b = 2.0 * (p0.x * d.x + p0.y * d.y);
+        const double c = p0.x * p0.x + p0.y * p0.y - 1.0;
+
+        const double discriminant = b * b - 4.0 * a * c;
+        if (a < 1e-12 || discriminant < 0.0) {
+            return intersections;
+        }
+
+        const double sqrtDiscriminant = std::sqrt(discriminant);
+        const double t1 = (-b - sqrtDiscriminant) / (2.0 * a);
+        const double t2 = (-b + sqrtDiscriminant) / (2.0 * a);
+
+        auto appendIfOnSegment = [&](double t) {
+            if (t < 0.0 || t > 1.0) {
+                return;
+            }
+            const Vec2d hitLocal{
+                p0Local.x + t * (p1Local.x - p0Local.x),
+                p0Local.y + t * (p1Local.y - p0Local.y)
+            };
+            intersections.push_back(fromEllipseLocal(hitLocal));
+        };
+
+        appendIfOnSegment(t1);
+        if (std::abs(t2 - t1) > 1e-12) {
+            appendIfOnSegment(t2);
+        }
+
+        return intersections;
+    };
+
     // Line-Line
     if (e1->type() == EntityType::Line && e2->type() == EntityType::Line) {
         Vec2d p1;
@@ -967,6 +1121,35 @@ std::vector<Vec2d> SnapManager::findEntityIntersections(
                 result.push_back(pt);
             }
         }
+    }
+    // Line-Ellipse
+    else if (e1->type() == EntityType::Line && e2->type() == EntityType::Ellipse) {
+        Vec2d p1;
+        Vec2d p2;
+        Vec2d center;
+        double majorRadius = 0.0;
+        double minorRadius = 0.0;
+        double rotation = 0.0;
+        if (!getLinePoints(static_cast<const SketchLine*>(e1), p1, p2) ||
+            !getEllipseData(static_cast<const SketchEllipse*>(e2), center, majorRadius, minorRadius, rotation)) {
+            return result;
+        }
+        auto pts = lineEllipseIntersection(p1, p2, center, majorRadius, minorRadius, rotation);
+        result.insert(result.end(), pts.begin(), pts.end());
+    }
+    else if (e1->type() == EntityType::Ellipse && e2->type() == EntityType::Line) {
+        Vec2d center;
+        Vec2d p1;
+        Vec2d p2;
+        double majorRadius = 0.0;
+        double minorRadius = 0.0;
+        double rotation = 0.0;
+        if (!getEllipseData(static_cast<const SketchEllipse*>(e1), center, majorRadius, minorRadius, rotation) ||
+            !getLinePoints(static_cast<const SketchLine*>(e2), p1, p2)) {
+            return result;
+        }
+        auto pts = lineEllipseIntersection(p1, p2, center, majorRadius, minorRadius, rotation);
+        result.insert(result.end(), pts.begin(), pts.end());
     }
 
     return result;
