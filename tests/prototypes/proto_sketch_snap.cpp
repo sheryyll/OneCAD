@@ -479,6 +479,37 @@ TestResult testAngularSnapNoReference() {
     return {true, "", ""};
 }
 
+TestResult testToggleSuppression() {
+    Sketch sketch = createTestSketch();
+    SnapManager manager;
+    manager.setAllSnapsEnabled(false);
+    manager.setSnapEnabled(SnapType::Grid, true);
+    manager.setGridSnapEnabled(true);
+
+    SnapResult result = manager.findBestSnap({5.1, 5.1}, sketch);
+    if (result.snapped && result.type == SnapType::Vertex) {
+        return {false, "not Vertex (only Grid enabled)", "got Vertex"};
+    }
+    if (result.snapped && result.type != SnapType::Grid) {
+        return {false, "Grid or no snap", std::to_string(static_cast<int>(result.type))};
+    }
+    return {true, "", ""};
+}
+
+TestResult testAllSnapTypesCombined() {
+    Sketch sketch = createTestSketch();
+    SnapManager manager;
+
+    SnapResult result = manager.findBestSnap({0.1, 0.1}, sketch);
+    if (!result.snapped) {
+        return {false, "snapped", "not snapped"};
+    }
+    if (result.type != SnapType::Vertex) {
+        return {false, "Vertex wins priority", std::to_string(static_cast<int>(result.type))};
+    }
+    return {true, "", ""};
+}
+
 TestResult testPriorityOrder() {
     Sketch sketch = createTestSketch();
     SnapManager manager = createSnapManagerFor({SnapType::Vertex, SnapType::Endpoint});
@@ -556,7 +587,9 @@ bool shouldSkipInLegacy(const std::string& testName) {
         "vertical_alignment",
         "extension",
         "guide",
-        "spatial_hash"
+        "spatial_hash",
+        "toggle",
+        "combined"
     };
 
     for (const std::string& token : blocked) {
@@ -642,6 +675,8 @@ int main(int argc, char** argv) {
         {"test_angular_snap_15deg_rounding", testAngularSnap15degRounding},
         {"test_angular_snap_45deg_exact", testAngularSnap45degExact},
         {"test_angular_snap_no_reference", testAngularSnapNoReference},
+        {"test_toggle_suppression", testToggleSuppression},
+        {"test_all_snap_types_combined", testAllSnapTypesCombined},
         {"test_priority_order", testPriorityOrder},
         {"test_spatial_hash_equivalent_to_bruteforce", testSpatialHashEquivalentToBruteforce}
     };
