@@ -39,6 +39,13 @@ target_link_libraries(proto_sketch_constraints
     onecad_core
 )
 
+# Sketch Snap Prototype
+add_executable(proto_sketch_snap prototypes/proto_sketch_snap.cpp)
+target_link_libraries(proto_sketch_snap
+    PRIVATE
+    onecad_core
+)
+
 # Sketch Solver Adapter Prototype
 add_executable(proto_sketch_solver prototypes/proto_sketch_solver.cpp)
 target_link_libraries(proto_sketch_solver
