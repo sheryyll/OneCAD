@@ -143,6 +143,9 @@ std::vector<SnapResult> SnapManager::findAllSnaps(
     if (isSnapEnabled(SnapType::Vertical)) {
         findVerticalSnaps(cursorPos, sketch, excludeEntities, results);
     }
+    if (isSnapEnabled(SnapType::SketchGuide)) {
+        findGuideSnaps(cursorPos, sketch, excludeEntities, radiusSq, results);
+    }
     if (isSnapEnabled(SnapType::ActiveLayer3D)) {
         findExternalSnaps(cursorPos, radiusSq, results);
     }
@@ -1109,6 +1112,55 @@ void SnapManager::findVerticalSnaps(
 
     if (found) {
         results.push_back(best);
+    }
+}
+
+void SnapManager::findGuideSnaps(
+    const Vec2d& cursorPos,
+    const Sketch& sketch,
+    const std::unordered_set<EntityID>& excludeEntities,
+    double radiusSq,
+    std::vector<SnapResult>& results) const
+{
+    for (const auto& entity : sketch.getAllEntities()) {
+        if (excludeEntities.count(entity->id())) continue;
+        if (entity->type() != EntityType::Line) continue;
+
+        const auto* line = static_cast<const SketchLine*>(entity.get());
+        const auto* startPt = sketch.getEntityAs<SketchPoint>(line->startPointId());
+        const auto* endPt = sketch.getEntityAs<SketchPoint>(line->endPointId());
+        if (!startPt || !endPt) continue;
+
+        const Vec2d lineStart = toVec2d(startPt->position());
+        const Vec2d lineEnd = toVec2d(endPt->position());
+        const Vec2d d{lineEnd.x - lineStart.x, lineEnd.y - lineStart.y};
+        const double len2 = d.x * d.x + d.y * d.y;
+        if (len2 < 1e-12) continue;
+
+        const double t = ((cursorPos.x - lineStart.x) * d.x +
+                          (cursorPos.y - lineStart.y) * d.y) / len2;
+        if (t >= 0.0 && t <= 1.0) continue;
+
+        if (std::abs(t) > 4.0 || std::abs(t - 1.0) > 3.0) continue;
+
+        const Vec2d projected{
+            lineStart.x + t * d.x,
+            lineStart.y + t * d.y
+        };
+        const double distSq = distanceSquared(cursorPos, projected);
+        if (distSq > radiusSq) continue;
+
+        const Vec2d origin = (t < 0.0) ? lineStart : lineEnd;
+        results.push_back({
+            .snapped = true,
+            .type = SnapType::SketchGuide,
+            .position = projected,
+            .entityId = entity->id(),
+            .distance = std::sqrt(distSq),
+            .guideOrigin = origin,
+            .hasGuide = true,
+            .hintText = "EXT"
+        });
     }
 }
 

@@ -311,6 +311,15 @@ private:
                            std::vector<SnapResult>& results) const;
 
     /**
+     * @brief Find extension/guide inference snaps
+     */
+    void findGuideSnaps(const Vec2d& cursorPos,
+                        const Sketch& sketch,
+                        const std::unordered_set<EntityID>& excludeEntities,
+                        double radiusSq,
+                        std::vector<SnapResult>& results) const;
+
+    /**
      * @brief Find snap to external geometry (3D)
      */
     void findExternalSnaps(const Vec2d& cursorPos,

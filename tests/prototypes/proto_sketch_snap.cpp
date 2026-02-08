@@ -362,6 +362,45 @@ TestResult testVerticalAlignmentSnap() {
     return {true, "", ""};
 }
 
+TestResult testExtensionSnapLine() {
+    Sketch sketch;
+    sketch.addLine(0.0, 0.0, 10.0, 0.0);
+
+    SnapManager manager = createSnapManagerFor({SnapType::SketchGuide});
+    SnapResult result = manager.findBestSnap({12.0, 0.5}, sketch);
+    TestResult check = expectSnap(result, SnapType::SketchGuide);
+    if (!check.pass) {
+        return check;
+    }
+    if (!approx(result.position.x, 12.0, 1e-6) || !approx(result.position.y, 0.0, 1e-6)) {
+        return {false,
+                "(12,0)",
+                "(" + std::to_string(result.position.x) + "," + std::to_string(result.position.y) + ")"};
+    }
+    if (!result.hasGuide) {
+        return {false, "hasGuide=true", "hasGuide=false"};
+    }
+    if (!approx(result.guideOrigin.x, 10.0, 1e-6) || !approx(result.guideOrigin.y, 0.0, 1e-6)) {
+        return {false,
+                "guideOrigin=(10,0)",
+                "(" + std::to_string(result.guideOrigin.x) + "," + std::to_string(result.guideOrigin.y) + ")"};
+    }
+    return {true, "", ""};
+}
+
+TestResult testExtensionSnapNoArc() {
+    Sketch sketch;
+    EntityID center = sketch.addPoint(0.0, 0.0);
+    sketch.addArc(center, 5.0, 0.0, M_PI * 0.5);
+
+    SnapManager manager = createSnapManagerFor({SnapType::SketchGuide});
+    SnapResult result = manager.findBestSnap({8.0, 1.0}, sketch);
+    if (result.snapped && result.type == SnapType::SketchGuide) {
+        return {false, "no SketchGuide snap", "SketchGuide snapped"};
+    }
+    return {true, "", ""};
+}
+
 TestResult testPriorityOrder() {
     Sketch sketch = createTestSketch();
     SnapManager manager = createSnapManagerFor({SnapType::Vertex, SnapType::Endpoint});
@@ -438,6 +477,7 @@ bool shouldSkipInLegacy(const std::string& testName) {
         "horizontal_alignment",
         "vertical_alignment",
         "extension",
+        "guide",
         "spatial_hash"
     };
 
@@ -519,6 +559,8 @@ int main(int argc, char** argv) {
         {"test_tangent_snap_arc", testTangentSnapArc},
         {"test_horizontal_alignment_snap", testHorizontalAlignmentSnap},
         {"test_vertical_alignment_snap", testVerticalAlignmentSnap},
+        {"test_extension_snap_line", testExtensionSnapLine},
+        {"test_extension_snap_no_arc", testExtensionSnapNoArc},
         {"test_priority_order", testPriorityOrder},
         {"test_spatial_hash_equivalent_to_bruteforce", testSpatialHashEquivalentToBruteforce}
     };
