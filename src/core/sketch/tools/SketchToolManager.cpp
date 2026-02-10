@@ -24,6 +24,13 @@ SnapResult applyGuideFirstSnapPolicy(const SnapResult& fallbackSnap,
         return fallbackSnap;
     }
 
+    // Prefer guide-guide Intersection over individual H/V when crossing exists
+    for (const auto& snap : allSnaps) {
+        if (snap.snapped && snap.type == SnapType::Intersection && snap.hasGuide) {
+            return snap;
+        }
+    }
+
     SnapResult bestGuide;
     bestGuide.distance = std::numeric_limits<double>::max();
     for (const auto& snap : allSnaps) {

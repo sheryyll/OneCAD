@@ -1339,6 +1339,83 @@ TestResult test_ambiguity_hook_api() {
     return {true, "", ""};
 }
 
+TestResult test_hv_guide_crossing_produces_intersection_candidate() {
+    Sketch sketch;
+    sketch.addPoint(5.0, 0.0);
+    sketch.addPoint(0.0, 3.0);
+
+    SnapManager manager = createSnapManagerFor({SnapType::Horizontal, SnapType::Vertical, SnapType::SketchGuide, SnapType::Intersection});
+    Vec2d query{5.1, 3.1};
+
+    auto allSnaps = manager.findAllSnaps(query, sketch);
+    bool found = false;
+    for (const auto& s : allSnaps) {
+        if (s.snapped && s.type == SnapType::Intersection && s.hasGuide &&
+            approx(s.position.x, 5.0) && approx(s.position.y, 3.0)) {
+            found = true;
+            break;
+        }
+    }
+
+    if (!found) return {false, "Intersection snap at (5,3) with hasGuide=true", "not found"};
+    return {true, "", ""};
+}
+
+TestResult test_hv_guide_crossing_wins_over_individual_hv() {
+    Sketch sketch;
+    sketch.addPoint(5.0, 0.0);
+    sketch.addPoint(0.0, 3.0);
+
+    SnapManager manager = createSnapManagerFor({SnapType::Horizontal, SnapType::Vertical, SnapType::SketchGuide, SnapType::Intersection});
+    Vec2d query{5.1, 3.1};
+
+    SnapResult best = manager.findBestSnap(query, sketch);
+    if (!best.snapped) return {false, "snapped", "not snapped"};
+    if (best.type != SnapType::Intersection) {
+        return {false, "Intersection", std::to_string(static_cast<int>(best.type))};
+    }
+    if (!approx(best.position.x, 5.0) || !approx(best.position.y, 3.0)) {
+        return {false, "(5,3)", "(" + std::to_string(best.position.x) + "," + std::to_string(best.position.y) + ")"};
+    }
+    return {true, "", ""};
+}
+
+TestResult test_hv_guide_crossing_loses_to_vertex() {
+    Sketch sketch;
+    sketch.addPoint(5.0, 3.0);
+    sketch.addPoint(5.0, 0.0);
+    sketch.addPoint(0.0, 3.0);
+
+    SnapManager manager = createSnapManagerFor({SnapType::Vertex, SnapType::Horizontal, SnapType::Vertical, SnapType::SketchGuide, SnapType::Intersection});
+    Vec2d query{5.0, 3.0};
+
+    SnapResult best = manager.findBestSnap(query, sketch);
+    if (!best.snapped) return {false, "snapped", "not snapped"};
+    if (best.type != SnapType::Vertex) {
+        return {false, "Vertex", std::to_string(static_cast<int>(best.type))};
+    }
+    return {true, "", ""};
+}
+
+TestResult test_near_parallel_guides_no_spurious_intersection() {
+    Sketch sketch;
+    sketch.addPoint(0.0, 5.0);
+    sketch.addPoint(10.0, 5.0000000000001);
+
+    SnapManager manager = createSnapManagerFor({SnapType::Horizontal, SnapType::Vertical, SnapType::SketchGuide, SnapType::Intersection});
+    Vec2d query{5.0, 5.0};
+
+    auto allSnaps = manager.findAllSnaps(query, sketch);
+    for (const auto& s : allSnaps) {
+        if (s.snapped && s.type == SnapType::Intersection) {
+            if (std::abs(s.position.x) > 1000.0 || std::abs(s.position.y) > 1000.0) {
+                return {false, "no huge spurious intersection", "found intersection at (" + std::to_string(s.position.x) + "," + std::to_string(s.position.y) + ")"};
+            }
+        }
+    }
+    return {true, "", ""};
+}
+
 bool shouldSkipInLegacy(const std::string& testName) {
     static const std::vector<std::string> blocked = {
         "perpendicular",
@@ -1467,6 +1544,10 @@ int main(int argc, char** argv) {
     {"test_parity_guide_adjacent_to_overlap", test_parity_guide_adjacent_to_overlap},
     {"test_parity_findBestSnap_stable_across_calls", test_parity_findBestSnap_stable_across_calls},
     {"test_guide_crossing_snaps_to_intersection", test_guide_crossing_snaps_to_intersection},
+    {"test_hv_guide_crossing_produces_intersection_candidate", test_hv_guide_crossing_produces_intersection_candidate},
+    {"test_hv_guide_crossing_wins_over_individual_hv", test_hv_guide_crossing_wins_over_individual_hv},
+    {"test_hv_guide_crossing_loses_to_vertex", test_hv_guide_crossing_loses_to_vertex},
+    {"test_near_parallel_guides_no_spurious_intersection", test_near_parallel_guides_no_spurious_intersection},
     {"test_ambiguity_hook_api", test_ambiguity_hook_api}
     };
 
