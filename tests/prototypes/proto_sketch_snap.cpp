@@ -105,6 +105,11 @@ const SketchLine* findLastLine(const Sketch& sketch) {
 }
 
 SnapResult selectEffectiveSnap(const SnapResult& bestSnap, const std::vector<SnapResult>& allSnaps) {
+    if (bestSnap.snapped &&
+        (bestSnap.type == SnapType::Vertex || bestSnap.type == SnapType::Endpoint)) {
+        return bestSnap;
+    }
+
     SnapResult bestGuide;
     bestGuide.distance = std::numeric_limits<double>::max();
     for (const auto& snap : allSnaps) {
@@ -942,7 +947,7 @@ TestResult test_dedupe_collinear_guides() {
     return {true, "", ""};
 }
 
-TestResult test_effective_snap_prefers_guide_when_present() {
+TestResult test_effective_snap_keeps_point_priority_over_guide() {
     SnapResult winner;
     winner.snapped = true;
     winner.type = SnapType::Vertex;
@@ -960,9 +965,9 @@ TestResult test_effective_snap_prefers_guide_when_present() {
     SnapResult result = selectEffectiveSnap(winner, allSnaps);
 
     if (!result.snapped) return {false, "snapped", "not snapped"};
-    if (result.type != SnapType::Perpendicular) return {false, "Perpendicular", std::to_string(static_cast<int>(result.type))};
-    if (!approx(result.position.x, guide.position.x, 1e-6) || !approx(result.position.y, guide.position.y, 1e-6)) {
-        return {false, "guide pos", "winner pos"};
+    if (result.type != SnapType::Vertex) return {false, "Vertex", std::to_string(static_cast<int>(result.type))};
+    if (!approx(result.position.x, winner.position.x, 1e-6) || !approx(result.position.y, winner.position.y, 1e-6)) {
+        return {false, "winner pos", "guide pos"};
     }
     return {true, "", ""};
 }
@@ -994,7 +999,7 @@ TestResult test_effective_snap_falls_back_when_no_guide() {
 TestResult test_effective_snap_nearest_guide_tiebreak() {
     SnapResult winner;
     winner.snapped = true;
-    winner.type = SnapType::Vertex;
+    winner.type = SnapType::Grid;
     winner.position = {5.0, 5.0};
     winner.distance = 0.5;
 
@@ -1238,24 +1243,54 @@ TestResult test_parity_guide_adjacent_to_overlap() {
 
     SnapResult commit = manager.findBestSnap(query, sketch);
     auto allSnaps = manager.findAllSnaps(query, sketch);
-    auto guideCandidate = findBestGuideCandidate(allSnaps);
-    if (!guideCandidate.has_value()) {
-        return {false, "guide candidate", "missing"};
-    }
 
     SnapResult preview = selectEffectiveSnap(commit, allSnaps);
     if (!preview.snapped) {
         return {false, "snapped", "not snapped"};
     }
-    if (!preview.hasGuide) {
-        return {false, "guide preview", "no guide"};
+    if (!snapResultsEqual(preview, commit)) {
+        return {false, "preview vs commit", "different winner"};
     }
-    if (!snapResultsEqual(preview, *guideCandidate)) {
-        return {false, "best guide", "not preview"};
+    if (preview.type != SnapType::Vertex) {
+        return {false, "Vertex", std::to_string(static_cast<int>(preview.type))};
     }
-    if (snapResultsEqual(preview, commit)) {
-        return {false, "preview vs commit", "same winner"};
+    return {true, "", ""};
+}
+
+TestResult test_guide_crossing_snaps_to_intersection() {
+    Sketch sketch;
+    sketch.addLine(0.0, 0.0, 4.0, 0.0);
+    sketch.addLine(6.0, 2.0, 6.0, 4.0);
+
+    SnapManager manager = createSnapManagerFor({SnapType::SketchGuide, SnapType::Intersection});
+    Vec2d query{6.1, 0.1};
+
+    auto allSnaps = manager.findAllSnaps(query, sketch);
+    bool sawGuideIntersection = false;
+    for (const auto& snap : allSnaps) {
+        if (snap.snapped && snap.type == SnapType::Intersection &&
+            approx(snap.position.x, 6.0, 1e-6) && approx(snap.position.y, 0.0, 1e-6)) {
+            sawGuideIntersection = true;
+            break;
+        }
     }
+    if (!sawGuideIntersection) {
+        return {false, "guide intersection candidate", "missing"};
+    }
+
+    SnapResult best = manager.findBestSnap(query, sketch);
+    if (!best.snapped) {
+        return {false, "snapped", "not snapped"};
+    }
+    if (best.type != SnapType::Intersection) {
+        return {false, "Intersection", std::to_string(static_cast<int>(best.type))};
+    }
+    if (!approx(best.position.x, 6.0, 1e-6) || !approx(best.position.y, 0.0, 1e-6)) {
+        return {false,
+                "(6,0)",
+                "(" + std::to_string(best.position.x) + "," + std::to_string(best.position.y) + ")"};
+    }
+
     return {true, "", ""};
 }
 
@@ -1420,7 +1455,7 @@ int main(int argc, char** argv) {
         {"test_clears_guides_when_no_snap", test_clears_guides_when_no_snap},
         {"test_guide_count_bounded", test_guide_count_bounded},
         {"test_dedupe_collinear_guides", test_dedupe_collinear_guides},
-        {"test_effective_snap_prefers_guide_when_present", test_effective_snap_prefers_guide_when_present},
+    {"test_effective_snap_keeps_point_priority_over_guide", test_effective_snap_keeps_point_priority_over_guide},
         {"test_effective_snap_falls_back_when_no_guide", test_effective_snap_falls_back_when_no_guide},
         {"test_effective_snap_nearest_guide_tiebreak", test_effective_snap_nearest_guide_tiebreak},
         {"test_line_commit_prefers_explicit_endpoint_over_guide", test_line_commit_prefers_explicit_endpoint_over_guide},
@@ -1428,10 +1463,11 @@ int main(int argc, char** argv) {
         {"test_overlap_point_beats_intersection", test_overlap_point_beats_intersection},
         {"test_overlap_endpoint_beats_intersection_colocated", test_overlap_endpoint_beats_intersection_colocated},
         {"test_overlap_repeated_runs_same_winner", test_overlap_repeated_runs_same_winner},
-        {"test_parity_no_guide_overlap", test_parity_no_guide_overlap},
-        {"test_parity_guide_adjacent_to_overlap", test_parity_guide_adjacent_to_overlap},
-        {"test_parity_findBestSnap_stable_across_calls", test_parity_findBestSnap_stable_across_calls},
-        {"test_ambiguity_hook_api", test_ambiguity_hook_api}
+    {"test_parity_no_guide_overlap", test_parity_no_guide_overlap},
+    {"test_parity_guide_adjacent_to_overlap", test_parity_guide_adjacent_to_overlap},
+    {"test_parity_findBestSnap_stable_across_calls", test_parity_findBestSnap_stable_across_calls},
+    {"test_guide_crossing_snaps_to_intersection", test_guide_crossing_snaps_to_intersection},
+    {"test_ambiguity_hook_api", test_ambiguity_hook_api}
     };
 
     int passed = 0;

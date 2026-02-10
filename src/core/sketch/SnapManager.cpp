@@ -29,6 +29,27 @@ inline gp_Pnt2d toGpPnt2d(const Vec2d& v) {
 
 constexpr double PI = 3.14159265358979323846;
 constexpr double TWO_PI = 2.0 * PI;
+
+std::optional<Vec2d> infiniteLineIntersection(const Vec2d& p1,
+                                              const Vec2d& p2,
+                                              const Vec2d& p3,
+                                              const Vec2d& p4) {
+    const double d1x = p2.x - p1.x;
+    const double d1y = p2.y - p1.y;
+    const double d2x = p4.x - p3.x;
+    const double d2y = p4.y - p3.y;
+
+    const double cross = d1x * d2y - d1y * d2x;
+    if (std::abs(cross) < 1e-12) {
+        return std::nullopt;
+    }
+
+    const double dx = p3.x - p1.x;
+    const double dy = p3.y - p1.y;
+    const double t = (dx * d2y - dy * d2x) / cross;
+
+    return Vec2d{p1.x + t * d1x, p1.y + t * d1y};
+}
 } // anonymous namespace
 
 SnapManager::SnapManager() {
@@ -215,6 +236,66 @@ std::vector<SnapResult> SnapManager::findAllSnaps(
         findGuideSnaps(cursorPos, sketch, excludeEntities, radiusSq, results);
         if (referencePoint.has_value()) {
             findAngularSnap(cursorPos, referencePoint.value(), radiusSq, results);
+        }
+
+        if (isSnapEnabled(SnapType::Intersection)) {
+            std::vector<SnapResult> guideCandidates;
+            guideCandidates.reserve(results.size());
+            for (const auto& snap : results) {
+                if (!snap.snapped || !snap.hasGuide) {
+                    continue;
+                }
+                if (distanceSquared(snap.guideOrigin, snap.position) < 1e-12) {
+                    continue;
+                }
+                guideCandidates.push_back(snap);
+            }
+
+            auto alreadyHasIntersectionAt = [&](const Vec2d& pos) {
+                for (const auto& snap : results) {
+                    if (!snap.snapped || snap.type != SnapType::Intersection) {
+                        continue;
+                    }
+                    if (std::abs(snap.position.x - pos.x) <= SnapResult::kOverlapEps &&
+                        std::abs(snap.position.y - pos.y) <= SnapResult::kOverlapEps) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+
+            for (size_t i = 0; i < guideCandidates.size(); ++i) {
+                for (size_t j = i + 1; j < guideCandidates.size(); ++j) {
+                    const auto intersection = infiniteLineIntersection(
+                        guideCandidates[i].guideOrigin,
+                        guideCandidates[i].position,
+                        guideCandidates[j].guideOrigin,
+                        guideCandidates[j].position);
+                    if (!intersection.has_value()) {
+                        continue;
+                    }
+
+                    const double distSq = distanceSquared(cursorPos, *intersection);
+                    if (distSq > radiusSq) {
+                        continue;
+                    }
+                    if (alreadyHasIntersectionAt(*intersection)) {
+                        continue;
+                    }
+
+                    results.push_back({
+                        .snapped = true,
+                        .type = SnapType::Intersection,
+                        .position = *intersection,
+                        .entityId = guideCandidates[i].entityId,
+                        .secondEntityId = guideCandidates[j].entityId,
+                        .distance = std::sqrt(distSq),
+                        .guideOrigin = guideCandidates[i].guideOrigin,
+                        .hasGuide = true,
+                        .hintText = "X"
+                    });
+                }
+            }
         }
     }
     if (isSnapEnabled(SnapType::ActiveLayer3D)) {

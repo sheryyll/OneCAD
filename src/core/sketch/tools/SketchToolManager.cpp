@@ -19,6 +19,11 @@ namespace {
 
 SnapResult applyGuideFirstSnapPolicy(const SnapResult& fallbackSnap,
                                      const std::vector<SnapResult>& allSnaps) {
+    if (fallbackSnap.snapped &&
+        (fallbackSnap.type == SnapType::Vertex || fallbackSnap.type == SnapType::Endpoint)) {
+        return fallbackSnap;
+    }
+
     SnapResult bestGuide;
     bestGuide.distance = std::numeric_limits<double>::max();
     for (const auto& snap : allSnaps) {
@@ -248,50 +253,69 @@ void SketchToolManager::handleMouseMove(const Vec2d& pos) {
             true,
             &allSnaps);
 
-        // Extract all guides for multi-guide rendering
-        std::vector<SketchRenderer::GuideLineInfo> guides;
-        for (const auto& snap : allSnaps) {
-            if (snap.hasGuide) {
-                guides.push_back({snap.guideOrigin, snap.position});
-            }
-        }
-
-        // Dedupe collinear guides
-        auto isCollinear = [](const SketchRenderer::GuideLineInfo& a, const SketchRenderer::GuideLineInfo& b) -> bool {
-            double dirAx = a.target.x - a.origin.x;
-            double dirAy = a.target.y - a.origin.y;
-            double dirBx = b.target.x - b.origin.x;
-            double dirBy = b.target.y - b.origin.y;
-            double lenA = std::sqrt((dirAx * dirAx) + (dirAy * dirAy));
-            double lenB = std::sqrt((dirBx * dirBx) + (dirBy * dirBy));
-            if (lenA < 1e-6 || lenB < 1e-6) {
-                return true;
-            }
-            dirAx /= lenA; dirAy /= lenA;
-            dirBx /= lenB; dirBy /= lenB;
-            double cross = std::abs((dirAx * dirBy) - (dirAy * dirBx));
-            return cross < 0.01;
-        };
-
-        std::vector<SketchRenderer::GuideLineInfo> uniqueGuides;
-        for (const auto& g : guides) {
-            bool duplicate = false;
-            for (const auto& u : uniqueGuides) {
-                if (isCollinear(g, u)) {
-                    duplicate = true;
-                    break;
-                }
-            }
-            if (!duplicate) {
-                uniqueGuides.push_back(g);
-                if (uniqueGuides.size() >= 4) {
-                    break;
-                }
-            }
-        }
-
         if (renderer_) {
-            renderer_->setActiveGuides(uniqueGuides);
+            if (currentSnapResult_.type == SnapType::Vertex ||
+                currentSnapResult_.type == SnapType::Endpoint) {
+                SnapResult bestGuide;
+                bestGuide.distance = std::numeric_limits<double>::max();
+                for (const auto& snap : allSnaps) {
+                    if (snap.hasGuide && snap.snapped && snap.distance < bestGuide.distance) {
+                        bestGuide = snap;
+                    }
+                }
+
+                if (bestGuide.snapped) {
+                    renderer_->setActiveGuides({{bestGuide.guideOrigin, bestGuide.position}});
+                } else {
+                    renderer_->setActiveGuides({});
+                }
+            } else {
+                // Extract all guides for multi-guide rendering.
+                std::vector<SketchRenderer::GuideLineInfo> guides;
+                for (const auto& snap : allSnaps) {
+                    if (snap.hasGuide) {
+                        guides.push_back({snap.guideOrigin, snap.position});
+                    }
+                }
+
+                // Dedupe collinear guides.
+                auto isCollinear = [](const SketchRenderer::GuideLineInfo& a, const SketchRenderer::GuideLineInfo& b) -> bool {
+                    double dirAx = a.target.x - a.origin.x;
+                    double dirAy = a.target.y - a.origin.y;
+                    double dirBx = b.target.x - b.origin.x;
+                    double dirBy = b.target.y - b.origin.y;
+                    double lenA = std::sqrt((dirAx * dirAx) + (dirAy * dirAy));
+                    double lenB = std::sqrt((dirBx * dirBx) + (dirBy * dirBy));
+                    if (lenA < 1e-6 || lenB < 1e-6) {
+                        return true;
+                    }
+                    dirAx /= lenA;
+                    dirAy /= lenA;
+                    dirBx /= lenB;
+                    dirBy /= lenB;
+                    double cross = std::abs((dirAx * dirBy) - (dirAy * dirBx));
+                    return cross < 0.01;
+                };
+
+                std::vector<SketchRenderer::GuideLineInfo> uniqueGuides;
+                for (const auto& g : guides) {
+                    bool duplicate = false;
+                    for (const auto& u : uniqueGuides) {
+                        if (isCollinear(g, u)) {
+                            duplicate = true;
+                            break;
+                        }
+                    }
+                    if (!duplicate) {
+                        uniqueGuides.push_back(g);
+                        if (uniqueGuides.size() >= 4) {
+                            break;
+                        }
+                    }
+                }
+
+                renderer_->setActiveGuides(uniqueGuides);
+            }
         }
     } else {
         currentSnapResult_ = SnapResult{};
