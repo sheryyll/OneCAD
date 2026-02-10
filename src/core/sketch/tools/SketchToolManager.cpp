@@ -8,8 +8,96 @@
 #include "MirrorTool.h"
 #include "../Sketch.h"
 #include "../SketchRenderer.h"
+#include <cassert>
+#include <cmath>
+#include <limits>
+#include <vector>
 
 namespace onecad::core::sketch::tools {
+
+namespace {
+
+SnapResult applyGuideFirstSnapPolicy(const SnapResult& fallbackSnap,
+                                     const std::vector<SnapResult>& allSnaps) {
+    SnapResult bestGuide;
+    bestGuide.distance = std::numeric_limits<double>::max();
+    for (const auto& snap : allSnaps) {
+        if (snap.hasGuide && snap.snapped && snap.distance < bestGuide.distance) {
+            bestGuide = snap;
+        }
+    }
+    return bestGuide.snapped ? bestGuide : fallbackSnap;
+}
+
+bool sameResolvedSnap(const SnapResult& a, const SnapResult& b) {
+    return a.snapped == b.snapped
+        && a.type == b.type
+        && std::abs(a.position.x - b.position.x) <= 1e-9
+        && std::abs(a.position.y - b.position.y) <= 1e-9
+        && a.entityId == b.entityId
+        && a.secondEntityId == b.secondEntityId
+        && a.pointId == b.pointId
+        && a.hasGuide == b.hasGuide
+        && std::abs(a.guideOrigin.x - b.guideOrigin.x) <= 1e-9
+        && std::abs(a.guideOrigin.y - b.guideOrigin.y) <= 1e-9
+        && a.hintText == b.hintText;
+}
+
+/**
+ * @brief Resolve effective snap for mouse input.
+ *
+ * Parity contract:
+ * - Commit path (`preferGuide=false`) resolves directly from `findBestSnap()`.
+ * - Preview path (`preferGuide=true`) may override the fallback with the nearest
+ *   guide-bearing candidate from `findAllSnaps()`.
+ * - If no guide-bearing candidate exists, preview and commit resolve the same
+ *   winner for identical input tuple (cursor position, sketch, exclusion set,
+ *   reference point).
+ */
+SnapResult resolveSnapForInputEvent(const SnapManager& snapManager,
+                                    const Vec2d& pos,
+                                    const Sketch& sketch,
+                                    const std::unordered_set<EntityID>& excludeFromSnap,
+                                    std::optional<Vec2d> referencePoint,
+                                    bool preferGuide,
+                                    std::vector<SnapResult>* allSnapsOut = nullptr) {
+    SnapResult bestSnap = snapManager.findBestSnap(pos, sketch, excludeFromSnap, referencePoint);
+
+    // Commit fast path: callers that neither prefer guide nor need all snaps
+    // should not pay the findAllSnaps() cost.
+    if (!preferGuide && !allSnapsOut) {
+        return bestSnap;
+    }
+
+    std::vector<SnapResult> allSnaps =
+        snapManager.findAllSnaps(pos, sketch, excludeFromSnap, referencePoint);
+
+    if (allSnapsOut) {
+        *allSnapsOut = allSnaps;
+    }
+
+    SnapResult guideResolvedSnap = applyGuideFirstSnapPolicy(bestSnap, allSnaps);
+
+#ifndef NDEBUG
+    bool hasGuideCandidate = false;
+    for (const auto& snap : allSnaps) {
+        if (snap.snapped && snap.hasGuide) {
+            hasGuideCandidate = true;
+            break;
+        }
+    }
+    if (!hasGuideCandidate) {
+        assert(sameResolvedSnap(guideResolvedSnap, bestSnap));
+    }
+#endif
+
+    if (preferGuide) {
+        return guideResolvedSnap;
+    }
+    return bestSnap;
+}
+
+} // namespace
 
 SketchToolManager::SketchToolManager(QObject* parent)
     : QObject(parent)
@@ -74,7 +162,13 @@ void SketchToolManager::handleMousePress(const Vec2d& pos, Qt::MouseButton butto
 
     rawCursorPos_ = pos;
     if (sketch_) {
-        currentSnapResult_ = snapManager_.findBestSnap(pos, *sketch_, excludeFromSnap_);
+        currentSnapResult_ = resolveSnapForInputEvent(
+            snapManager_,
+            pos,
+            *sketch_,
+            excludeFromSnap_,
+            activeTool_->getReferencePoint(),
+            false);
     } else {
         currentSnapResult_ = SnapResult{};
     }
@@ -144,9 +238,66 @@ void SketchToolManager::handleMouseMove(const Vec2d& pos) {
 
     // Apply snapping
     if (sketch_) {
-        currentSnapResult_ = snapManager_.findBestSnap(pos, *sketch_, excludeFromSnap_);
+        std::vector<SnapResult> allSnaps;
+        currentSnapResult_ = resolveSnapForInputEvent(
+            snapManager_,
+            pos,
+            *sketch_,
+            excludeFromSnap_,
+            activeTool_->getReferencePoint(),
+            true,
+            &allSnaps);
+
+        // Extract all guides for multi-guide rendering
+        std::vector<SketchRenderer::GuideLineInfo> guides;
+        for (const auto& snap : allSnaps) {
+            if (snap.hasGuide) {
+                guides.push_back({snap.guideOrigin, snap.position});
+            }
+        }
+
+        // Dedupe collinear guides
+        auto isCollinear = [](const SketchRenderer::GuideLineInfo& a, const SketchRenderer::GuideLineInfo& b) -> bool {
+            double dirAx = a.target.x - a.origin.x;
+            double dirAy = a.target.y - a.origin.y;
+            double dirBx = b.target.x - b.origin.x;
+            double dirBy = b.target.y - b.origin.y;
+            double lenA = std::sqrt((dirAx * dirAx) + (dirAy * dirAy));
+            double lenB = std::sqrt((dirBx * dirBx) + (dirBy * dirBy));
+            if (lenA < 1e-6 || lenB < 1e-6) {
+                return true;
+            }
+            dirAx /= lenA; dirAy /= lenA;
+            dirBx /= lenB; dirBy /= lenB;
+            double cross = std::abs((dirAx * dirBy) - (dirAy * dirBx));
+            return cross < 0.01;
+        };
+
+        std::vector<SketchRenderer::GuideLineInfo> uniqueGuides;
+        for (const auto& g : guides) {
+            bool duplicate = false;
+            for (const auto& u : uniqueGuides) {
+                if (isCollinear(g, u)) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (!duplicate) {
+                uniqueGuides.push_back(g);
+                if (uniqueGuides.size() >= 4) {
+                    break;
+                }
+            }
+        }
+
+        if (renderer_) {
+            renderer_->setActiveGuides(uniqueGuides);
+        }
     } else {
         currentSnapResult_ = SnapResult{};
+        if (renderer_) {
+            renderer_->setActiveGuides({});
+        }
     }
 
     // Pass snap result to tool
@@ -168,7 +319,13 @@ void SketchToolManager::handleMouseRelease(const Vec2d& pos, Qt::MouseButton but
 
     rawCursorPos_ = pos;
     if (sketch_) {
-        currentSnapResult_ = snapManager_.findBestSnap(pos, *sketch_, excludeFromSnap_);
+        currentSnapResult_ = resolveSnapForInputEvent(
+            snapManager_,
+            pos,
+            *sketch_,
+            excludeFromSnap_,
+            activeTool_->getReferencePoint(),
+            false);
     } else {
         currentSnapResult_ = SnapResult{};
     }
@@ -199,8 +356,8 @@ void SketchToolManager::renderPreview() {
 
     // Show snap indicator if snapped
     if (currentSnapResult_.snapped) {
-        const bool showGuide = snapManager_.showGuidePoints() && currentSnapResult_.hasGuide;
-        const std::string hintText = snapManager_.showSnappingHints()
+        bool showGuide = snapManager_.showGuidePoints() && currentSnapResult_.hasGuide;
+        std::string hintText = snapManager_.showSnappingHints()
             ? currentSnapResult_.hintText
             : std::string();
         renderer_->showSnapIndicator(
@@ -222,6 +379,7 @@ void SketchToolManager::renderPreview() {
     }
 }
 
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 std::unique_ptr<SketchTool> SketchToolManager::createTool(ToolType type) {
     switch (type) {
         case ToolType::Line:

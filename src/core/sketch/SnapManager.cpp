@@ -68,6 +68,8 @@ SnapResult SnapManager::findBestSnap(
     const std::unordered_set<EntityID>& excludeEntities,
     std::optional<Vec2d> referencePoint) const
 {
+    clearAmbiguity();
+
     if (!enabled_) {
         return SnapResult{};
     }
@@ -83,7 +85,71 @@ SnapResult SnapManager::findBestSnap(
 
     // Sort by priority (type first, then distance)
     std::sort(snaps.begin(), snaps.end());
-    return snaps.front();
+
+    const SnapResult& best = snaps.front();
+
+    // Detect ambiguity: co-located candidates within kOverlapEps
+    std::vector<SnapResult> coLocated;
+    for (const auto& snap : snaps) {
+        if (std::abs(snap.position.x - best.position.x) <= SnapResult::kOverlapEps &&
+            std::abs(snap.position.y - best.position.y) <= SnapResult::kOverlapEps) {
+            coLocated.push_back(snap);
+        }
+    }
+
+    if (coLocated.size() > 1) {
+        ambiguityState_.candidates = coLocated;
+        ambiguityState_.active = true;
+        ambiguityState_.selectedIndex = 0;
+    }
+
+    if (best.type != SnapType::Vertex) {
+        return best;
+    }
+
+    constexpr double kDistanceEps = 1e-9;
+    const auto isOverlapping = [&](const SnapResult& snap) {
+        return std::abs(snap.position.x - best.position.x) <= SnapResult::kOverlapEps &&
+               std::abs(snap.position.y - best.position.y) <= SnapResult::kOverlapEps;
+    };
+
+    std::unordered_map<EntityID, size_t> pointOrder;
+    pointOrder.reserve(sketch.getEntityCount());
+    size_t pointIndex = 0;
+    for (const auto& entity : sketch.getAllEntities()) {
+        if (entity->type() != EntityType::Point) {
+            continue;
+        }
+        pointOrder.emplace(entity->id(), pointIndex++);
+    }
+
+    auto pointOrderOf = [&](const SnapResult& snap) {
+        const EntityID& pointKey = snap.pointId.empty() ? snap.entityId : snap.pointId;
+        auto it = pointOrder.find(pointKey);
+        return it != pointOrder.end() ? it->second : std::numeric_limits<size_t>::max();
+    };
+
+    const SnapResult* bestVertex = &best;
+    for (const auto& snap : snaps) {
+        if (snap.type != SnapType::Vertex) {
+            continue;
+        }
+        if (std::abs(snap.distance - best.distance) > kDistanceEps) {
+            continue;
+        }
+        if (!isOverlapping(snap)) {
+            continue;
+        }
+
+        const size_t currentOrder = pointOrderOf(*bestVertex);
+        const size_t candidateOrder = pointOrderOf(snap);
+        if (candidateOrder < currentOrder ||
+            (candidateOrder == currentOrder && snap < *bestVertex)) {
+            bestVertex = &snap;
+        }
+    }
+
+    return *bestVertex;
 }
 
 std::vector<SnapResult> SnapManager::findAllSnaps(
@@ -158,14 +224,29 @@ std::vector<SnapResult> SnapManager::findAllSnaps(
     return results;
 }
 
-void SnapManager::rebuildSpatialHash(const Sketch& sketch) const {
-    const size_t entityCount = sketch.getEntityCount();
-    if (entityCount == lastEntityCount_) {
+bool SnapManager::hasAmbiguity() const {
+    return ambiguityState_.active && ambiguityState_.candidates.size() > 1;
+}
+
+size_t SnapManager::ambiguityCandidateCount() const {
+    return ambiguityState_.active ? ambiguityState_.candidates.size() : 0;
+}
+
+void SnapManager::cycleAmbiguity() const {
+    if (!ambiguityState_.active || ambiguityState_.candidates.empty()) {
         return;
     }
+    ambiguityState_.selectedIndex = (ambiguityState_.selectedIndex + 1) % ambiguityState_.candidates.size();
+}
 
+void SnapManager::clearAmbiguity() const {
+    ambiguityState_.candidates.clear();
+    ambiguityState_.selectedIndex = 0;
+    ambiguityState_.active = false;
+}
+
+void SnapManager::rebuildSpatialHash(const Sketch& sketch) const {
     spatialHash_.rebuild(sketch);
-    lastEntityCount_ = entityCount;
 }
 
 bool SnapManager::shouldConsiderEntity(const EntityID& entityId,
@@ -203,7 +284,8 @@ void SnapManager::findVertexSnaps(
                 .position = pos,
                 .entityId = entity->id(),
                 .pointId = entity->id(),
-                .distance = std::sqrt(distSq)
+                .distance = std::sqrt(distSq),
+                .hintText = "PT"
             });
         }
     }
@@ -236,7 +318,8 @@ void SnapManager::findEndpointSnaps(
                         .position = pos,
                         .entityId = entity->id(),
                         .pointId = line->startPointId(),
-                        .distance = std::sqrt(distSq)
+                        .distance = std::sqrt(distSq),
+                        .hintText = "END"
                     });
                 }
             }
@@ -253,7 +336,8 @@ void SnapManager::findEndpointSnaps(
                         .position = pos,
                         .entityId = entity->id(),
                         .pointId = line->endPointId(),
-                        .distance = std::sqrt(distSq)
+                        .distance = std::sqrt(distSq),
+                        .hintText = "END"
                     });
                 }
             }
@@ -274,7 +358,8 @@ void SnapManager::findEndpointSnaps(
                     .type = SnapType::Endpoint,
                     .position = startPos,
                     .entityId = entity->id(),
-                    .distance = std::sqrt(distSq)
+                    .distance = std::sqrt(distSq),
+                    .hintText = "END"
                 });
             }
 
@@ -287,7 +372,8 @@ void SnapManager::findEndpointSnaps(
                     .type = SnapType::Endpoint,
                     .position = endPos,
                     .entityId = entity->id(),
-                    .distance = std::sqrt(distSq)
+                    .distance = std::sqrt(distSq),
+                    .hintText = "END"
                 });
             }
         }
@@ -322,7 +408,8 @@ void SnapManager::findMidpointSnaps(
                     .type = SnapType::Midpoint,
                     .position = midPos,
                     .entityId = entity->id(),
-                    .distance = std::sqrt(distSq)
+                    .distance = std::sqrt(distSq),
+                    .hintText = "MID"
                 });
             }
         }
@@ -340,7 +427,8 @@ void SnapManager::findMidpointSnaps(
                     .type = SnapType::Midpoint,
                     .position = midPos,
                     .entityId = entity->id(),
-                    .distance = std::sqrt(distSq)
+                    .distance = std::sqrt(distSq),
+                    .hintText = "MID"
                 });
             }
         }
@@ -386,7 +474,8 @@ void SnapManager::findCenterSnaps(
                 .position = pos,
                 .entityId = entity->id(),
                 .pointId = centerPt->id(),
-                .distance = std::sqrt(distSq)
+                .distance = std::sqrt(distSq),
+                .hintText = "CEN"
             });
         }
     }
@@ -428,7 +517,8 @@ void SnapManager::findQuadrantSnaps(
                         .type = SnapType::Quadrant,
                         .position = quadPt,
                         .entityId = entity->id(),
-                        .distance = std::sqrt(distSq)
+                        .distance = std::sqrt(distSq),
+                        .hintText = "QUAD"
                     });
                 }
             }
@@ -457,7 +547,8 @@ void SnapManager::findQuadrantSnaps(
                         .type = SnapType::Quadrant,
                         .position = quadPt,
                         .entityId = entity->id(),
-                        .distance = std::sqrt(distSq)
+                        .distance = std::sqrt(distSq),
+                        .hintText = "QUAD"
                     });
                 }
             }
@@ -477,7 +568,8 @@ void SnapManager::findQuadrantSnaps(
                         .type = SnapType::Quadrant,
                         .position = quadPt,
                         .entityId = entity->id(),
-                        .distance = std::sqrt(distSq)
+                        .distance = std::sqrt(distSq),
+                        .hintText = "QUAD"
                     });
                 }
             }
@@ -521,7 +613,8 @@ void SnapManager::findIntersectionSnaps(
                         .position = pt,
                         .entityId = entities[i]->id(),
                         .secondEntityId = entities[j]->id(),
-                        .distance = std::sqrt(distSq)
+                        .distance = std::sqrt(distSq),
+                        .hintText = "INT"
                     });
                 }
             }
@@ -647,7 +740,8 @@ void SnapManager::findOnCurveSnaps(
                     .type = SnapType::OnCurve,
                     .position = nearestPt,
                     .entityId = entity->id(),
-                    .distance = std::sqrt(distSq)
+                    .distance = std::sqrt(distSq),
+                    .hintText = "ON"
                 });
             }
         }
@@ -672,7 +766,8 @@ void SnapManager::findGridSnaps(
             .snapped = true,
             .type = SnapType::Grid,
             .position = gridPt,
-            .distance = std::sqrt(distSq)
+            .distance = std::sqrt(distSq),
+            .hintText = "GRID"
         });
     }
 }
@@ -766,13 +861,20 @@ void SnapManager::findPerpendicularSnaps(
 
         const double distSq = distanceSquared(cursorPos, foot);
         if (distSq <= radiusSq) {
-            results.push_back({
+            SnapResult result{
                 .snapped = true,
                 .type = SnapType::Perpendicular,
                 .position = foot,
                 .entityId = entity->id(),
-                .distance = std::sqrt(distSq)
-            });
+                .distance = std::sqrt(distSq),
+                .guideOrigin = cursorPos,
+                .hasGuide = true,
+                .hintText = "PERP"
+            };
+            if (distanceSquared(result.guideOrigin, result.position) < 1e-12) {
+                result.hasGuide = false;
+            }
+            results.push_back(result);
         }
     }
 }
@@ -861,13 +963,20 @@ void SnapManager::findTangentSnaps(
         }
 
         if (bestDistSq <= radiusSq) {
-            results.push_back({
+            SnapResult result{
                 .snapped = true,
                 .type = SnapType::Tangent,
                 .position = bestPoint,
                 .entityId = entity->id(),
-                .distance = std::sqrt(bestDistSq)
-            });
+                .distance = std::sqrt(bestDistSq),
+                .guideOrigin = cursorPos,
+                .hasGuide = true,
+                .hintText = "TAN"
+            };
+            if (distanceSquared(result.guideOrigin, result.position) < 1e-12) {
+                result.hasGuide = false;
+            }
+            results.push_back(result);
         }
     }
 }
@@ -992,6 +1101,9 @@ void SnapManager::findHorizontalSnaps(
     }
 
     if (found) {
+        if (distanceSquared(best.guideOrigin, best.position) < 1e-12) {
+            best.hasGuide = false;
+        }
         results.push_back(best);
     }
 }
@@ -1116,6 +1228,9 @@ void SnapManager::findVerticalSnaps(
     }
 
     if (found) {
+        if (distanceSquared(best.guideOrigin, best.position) < 1e-12) {
+            best.hasGuide = false;
+        }
         results.push_back(best);
     }
 }
@@ -1156,7 +1271,7 @@ void SnapManager::findGuideSnaps(
         if (distSq > radiusSq) continue;
 
         const Vec2d origin = (t < 0.0) ? lineStart : lineEnd;
-        results.push_back({
+        SnapResult result{
             .snapped = true,
             .type = SnapType::SketchGuide,
             .position = projected,
@@ -1165,7 +1280,11 @@ void SnapManager::findGuideSnaps(
             .guideOrigin = origin,
             .hasGuide = true,
             .hintText = "EXT"
-        });
+        };
+        if (distanceSquared(result.guideOrigin, result.position) < 1e-12) {
+            result.hasGuide = false;
+        }
+        results.push_back(result);
     }
 }
 
@@ -1202,7 +1321,7 @@ void SnapManager::findAngularSnap(
     }
     const int angleInt = static_cast<int>(std::round(angleDeg));
 
-    results.push_back({
+    SnapResult result{
         .snapped = true,
         .type = SnapType::SketchGuide,
         .position = snappedPos,
@@ -1210,7 +1329,11 @@ void SnapManager::findAngularSnap(
         .guideOrigin = referencePoint,
         .hasGuide = true,
         .hintText = std::to_string(angleInt) + "\xC2\xB0"
-    });
+    };
+    if (distanceSquared(result.guideOrigin, result.position) < 1e-12) {
+        result.hasGuide = false;
+    }
+    results.push_back(result);
 }
 
 // ========== Geometry Helpers ==========
