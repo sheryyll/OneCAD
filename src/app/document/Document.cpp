@@ -1,17 +1,31 @@
 #include "Document.h"
 #include "../../core/sketch/Sketch.h"
+#include "../../core/sketch/FaceBoundaryProjector.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QLoggingCategory>
+#include <cmath>
 #include <QUuid>
 
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
+#include <TopAbs_Orientation.hxx>
 #include <TopoDS.hxx>
+#include <TopoDS_Face.hxx>
+
+#include <BRepAdaptor_Surface.hxx>
+#include <GeomAbs_SurfaceType.hxx>
+
+#include <gp_Dir.hxx>
+#include <gp_Pln.hxx>
+#include <gp_Vec.hxx>
 
 namespace onecad::app {
+
+Q_LOGGING_CATEGORY(logDocument, "onecad.app.document")
 
 Document::Document(QObject* parent)
     : QObject(parent)
@@ -306,6 +320,210 @@ const TopoDS_Shape* Document::getBodyShape(const std::string& id) const {
         return nullptr;
     }
     return &it->second.shape;
+}
+
+std::optional<core::sketch::SketchPlane> Document::getSketchPlaneForFace(const std::string& bodyId,
+                                                                          const std::string& faceId) const {
+    qCDebug(logDocument) << "getSketchPlaneForFace:start"
+                         << "bodyId=" << QString::fromStdString(bodyId)
+                         << "faceId=" << QString::fromStdString(faceId);
+
+    if (bodyId.empty() || faceId.empty()) {
+        qCWarning(logDocument) << "getSketchPlaneForFace:missing-ids";
+        return std::nullopt;
+    }
+
+    const TopoDS_Shape* bodyShape = getBodyShape(bodyId);
+    if (!bodyShape || bodyShape->IsNull()) {
+        qCWarning(logDocument) << "getSketchPlaneForFace:body-missing-or-null"
+                               << QString::fromStdString(bodyId);
+        return std::nullopt;
+    }
+
+    const auto* faceEntry = elementMap_.find(kernel::elementmap::ElementId::From(faceId));
+    if (!faceEntry || faceEntry->kind != kernel::elementmap::ElementKind::Face ||
+        faceEntry->shape.IsNull()) {
+        qCWarning(logDocument) << "getSketchPlaneForFace:face-missing-or-not-face"
+                               << QString::fromStdString(faceId);
+        return std::nullopt;
+    }
+
+    TopoDS_Face face = TopoDS::Face(faceEntry->shape);
+    bool belongsToBody = false;
+    for (TopExp_Explorer explorer(*bodyShape, TopAbs_FACE); explorer.More(); explorer.Next()) {
+        const TopoDS_Shape& candidateFace = explorer.Current();
+        if (candidateFace.IsSame(face)) {
+            belongsToBody = true;
+            break;
+        }
+    }
+
+    if (!belongsToBody) {
+        qCWarning(logDocument) << "getSketchPlaneForFace:face-not-in-body"
+                               << "bodyId=" << QString::fromStdString(bodyId)
+                               << "faceId=" << QString::fromStdString(faceId);
+        return std::nullopt;
+    }
+
+    BRepAdaptor_Surface surface(face, true);
+    if (surface.GetType() != GeomAbs_Plane) {
+        qCDebug(logDocument) << "getSketchPlaneForFace:non-planar-face"
+                             << QString::fromStdString(faceId);
+        return std::nullopt;
+    }
+
+    gp_Pln plane = surface.Plane();
+    gp_Dir normal = plane.Axis().Direction();
+    if (face.Orientation() == TopAbs_REVERSED) {
+        normal.Reverse();
+    }
+
+    gp_Dir xSeed = plane.Position().XDirection();
+    gp_Vec xVec(xSeed);
+    gp_Vec normalVec(normal);
+    xVec -= normalVec.Multiplied(xVec.Dot(normalVec));
+
+    constexpr double kEpsilon = 1e-12;
+    if (xVec.SquareMagnitude() < kEpsilon) {
+        gp_Dir fallback = std::abs(normal.Z()) < 0.9 ? gp_Dir(0.0, 0.0, 1.0) : gp_Dir(0.0, 1.0, 0.0);
+        xVec = gp_Vec(normal) ^ gp_Vec(fallback);
+    }
+    if (xVec.SquareMagnitude() < kEpsilon) {
+        qCWarning(logDocument) << "getSketchPlaneForFace:failed-to-build-axis"
+                               << QString::fromStdString(faceId);
+        return std::nullopt;
+    }
+    xVec.Normalize();
+
+    gp_Dir xAxis(xVec);
+    gp_Dir yAxis = normal ^ xAxis;
+
+    core::sketch::SketchPlane sketchPlane;
+    sketchPlane.origin = {plane.Location().X(), plane.Location().Y(), plane.Location().Z()};
+    sketchPlane.xAxis = {xAxis.X(), xAxis.Y(), xAxis.Z()};
+    sketchPlane.yAxis = {yAxis.X(), yAxis.Y(), yAxis.Z()};
+    sketchPlane.normal = {normal.X(), normal.Y(), normal.Z()};
+    qCDebug(logDocument) << "getSketchPlaneForFace:done"
+                         << "bodyId=" << QString::fromStdString(bodyId)
+                         << "faceId=" << QString::fromStdString(faceId);
+    return sketchPlane;
+}
+
+bool Document::ensureHostFaceBoundariesProjected(const std::string& sketchId) {
+    qCDebug(logDocument) << "ensureHostFaceBoundariesProjected:start"
+                         << QString::fromStdString(sketchId);
+    core::sketch::Sketch* sketch = getSketch(sketchId);
+    if (!sketch) {
+        qCWarning(logDocument) << "ensureHostFaceBoundariesProjected:sketch-missing"
+                               << QString::fromStdString(sketchId);
+        return false;
+    }
+
+    const auto& hostFace = sketch->hostFaceAttachment();
+    if (!hostFace || !hostFace->isValid()) {
+        qCDebug(logDocument) << "ensureHostFaceBoundariesProjected:no-valid-host-face"
+                             << QString::fromStdString(sketchId);
+        return false;
+    }
+
+    if (sketch->hasProjectedHostBoundaries()) {
+        qCDebug(logDocument) << "ensureHostFaceBoundariesProjected:already-projected"
+                             << QString::fromStdString(sketchId);
+        return false;
+    }
+
+    const bool projected = projectHostFaceBoundaries(*sketch, hostFace->bodyId, hostFace->faceId);
+    qCDebug(logDocument) << "ensureHostFaceBoundariesProjected:done"
+                         << "sketchId=" << QString::fromStdString(sketchId)
+                         << "projected=" << projected;
+    return projected;
+}
+
+bool Document::projectHostFaceBoundaries(core::sketch::Sketch& sketch,
+                                         const std::string& bodyId,
+                                         const std::string& faceId) {
+    qCDebug(logDocument) << "projectHostFaceBoundaries:start"
+                         << "sketchEntityCount=" << sketch.getAllEntities().size()
+                         << "bodyId=" << QString::fromStdString(bodyId)
+                         << "faceId=" << QString::fromStdString(faceId);
+    if (bodyId.empty() || faceId.empty()) {
+        qCWarning(logDocument) << "projectHostFaceBoundaries:missing-ids";
+        return false;
+    }
+
+    const auto plane = getSketchPlaneForFace(bodyId, faceId);
+    if (!plane.has_value()) {
+        qCWarning(logDocument) << "projectHostFaceBoundaries:failed-to-resolve-sketch-plane"
+                               << "bodyId=" << QString::fromStdString(bodyId)
+                               << "faceId=" << QString::fromStdString(faceId);
+        return false;
+    }
+
+    const auto* faceEntry = elementMap_.find(kernel::elementmap::ElementId::From(faceId));
+    if (!faceEntry || faceEntry->kind != kernel::elementmap::ElementKind::Face ||
+        faceEntry->shape.IsNull()) {
+        qCWarning(logDocument) << "projectHostFaceBoundaries:invalid-face-entry"
+                               << QString::fromStdString(faceId);
+        return false;
+    }
+
+    const auto* bodyShape = getBodyShape(bodyId);
+    if (!bodyShape || bodyShape->IsNull()) {
+        qCWarning(logDocument) << "projectHostFaceBoundaries:body-missing-or-null"
+                               << QString::fromStdString(bodyId);
+        return false;
+    }
+
+    const TopoDS_Face face = TopoDS::Face(faceEntry->shape);
+    bool belongsToBody = false;
+    for (TopExp_Explorer explorer(*bodyShape, TopAbs_FACE); explorer.More(); explorer.Next()) {
+        if (explorer.Current().IsSame(face)) {
+            belongsToBody = true;
+            break;
+        }
+    }
+    if (!belongsToBody) {
+        qCWarning(logDocument) << "projectHostFaceBoundaries:face-not-in-body"
+                               << "bodyId=" << QString::fromStdString(bodyId)
+                               << "faceId=" << QString::fromStdString(faceId);
+        return false;
+    }
+
+    core::sketch::FaceBoundaryProjector::Options options;
+    options.preferExactPrimitives = true;
+    options.lockInsertedBoundaryPoints = true;
+    options.pointMergeTolerance = 1e-5;
+    options.radiusTolerance = 1e-5;
+    options.fallbackSegmentsPerCurve = 32;
+
+    auto projection = core::sketch::FaceBoundaryProjector::projectFaceBoundaries(face, sketch, options);
+    if (!projection.success) {
+        qCWarning(logDocument) << "projectHostFaceBoundaries:projection-failed"
+                               << QString::fromStdString(projection.errorMessage);
+        return false;
+    }
+
+    if (projection.hasClosedBoundary) {
+        const bool insertedSketchData =
+            projection.insertedPoints > 0 ||
+            projection.insertedCurves > 0 ||
+            projection.insertedFixedConstraints > 0;
+        sketch.setProjectedHostBoundariesVersion(1);
+        if (insertedSketchData) {
+            setModified(true);
+        }
+        qCInfo(logDocument) << "projectHostFaceBoundaries:projected"
+                            << "sketchEntityCount=" << sketch.getAllEntities().size()
+                            << "insertedPoints=" << projection.insertedPoints
+                            << "insertedCurves=" << projection.insertedCurves
+                            << "insertedFixedConstraints=" << projection.insertedFixedConstraints
+                            << "insertedSketchData=" << insertedSketchData;
+        return insertedSketchData;
+    }
+
+    qCDebug(logDocument) << "projectHostFaceBoundaries:no-closed-boundary"
+                         << "sketchEntityCount=" << sketch.getAllEntities().size();
+    return false;
 }
 
 std::vector<std::string> Document::getBodyIds() const {

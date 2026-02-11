@@ -116,7 +116,8 @@ std::vector<InferredConstraint> AutoConstrainer::inferLineConstraints(
                                 << "end=" << endPoint.x << endPoint.y
                                 << "length=" << length
                                 << "polylineMode=" << context.isPolylineMode
-                                << "previousEntity=" << QString::fromStdString(context.previousEntity);
+                                << "previousEntity="
+                                << QString::fromStdString(context.previousEntity.value_or(std::string{}));
     if (length < constants::MIN_GEOMETRY_SIZE) {
         qCDebug(logAutoConstrainer) << "inferLineConstraints:skip-short" << length;
         return results;

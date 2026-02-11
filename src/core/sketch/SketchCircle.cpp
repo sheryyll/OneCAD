@@ -1,7 +1,7 @@
 #include "SketchCircle.h"
 
-#include <QDebug>
 #include <QJsonObject>
+#include <QLoggingCategory>
 #include <QString>
 
 #include <algorithm>
@@ -10,6 +10,8 @@
 #include <utility>
 
 namespace onecad::core::sketch {
+
+Q_LOGGING_CATEGORY(logSketchCircle, "onecad.core.sketch.circle")
 
 SketchCircle::SketchCircle()
     : SketchEntity() {
@@ -20,7 +22,7 @@ SketchCircle::SketchCircle(const PointID& centerPointId, double radius)
       m_centerPointId(centerPointId),
       m_radius(std::max(0.0, radius)) {
     if (radius < 0.0) {
-        qWarning() << "SketchCircle: negative radius; clamping to 0.0";
+        qCWarning(logSketchCircle) << "ctor:negative-radius-clamped";
     }
 }
 
@@ -53,6 +55,7 @@ void SketchCircle::serialize(QJsonObject& json) const {
     json["id"] = QString::fromStdString(m_id);
     json["type"] = QString::fromStdString(typeName());
     json["construction"] = m_isConstruction;
+    json["referenceLocked"] = m_isReferenceLocked;
     json["center"] = QString::fromStdString(m_centerPointId);
     json["radius"] = m_radius;
 }
@@ -73,6 +76,10 @@ bool SketchCircle::deserialize(const QJsonObject& json) {
     if (json.contains("construction") && !json["construction"].isBool()) {
         return false;
     }
+    if (json.contains("referenceLocked") && !json["referenceLocked"].isBool()) {
+        qCWarning(logSketchCircle) << "deserialize:invalid-referenceLocked-type";
+        return false;
+    }
 
     EntityID newId = json.contains("id")
                          ? json["id"].toString().toStdString()
@@ -80,17 +87,26 @@ bool SketchCircle::deserialize(const QJsonObject& json) {
     bool newConstruction = json.contains("construction")
                                ? json["construction"].toBool()
                                : m_isConstruction;
+    bool newReferenceLocked = json.contains("referenceLocked")
+                                  ? json["referenceLocked"].toBool()
+                                  : m_isReferenceLocked;
     PointID newCenter = json["center"].toString().toStdString();
     double radius = json["radius"].toDouble();
     if (radius < 0.0) {
-        qWarning() << "SketchCircle: negative radius in JSON; clamping to 0.0";
+        qCWarning(logSketchCircle) << "deserialize:negative-radius-clamped";
         radius = 0.0;
     }
 
     m_id = std::move(newId);
     m_isConstruction = newConstruction;
+    m_isReferenceLocked = newReferenceLocked;
     m_centerPointId = std::move(newCenter);
     m_radius = radius;
+    qCDebug(logSketchCircle) << "deserialize:done"
+                             << "id=" << QString::fromStdString(m_id)
+                             << "referenceLocked=" << m_isReferenceLocked
+                             << "center=" << QString::fromStdString(m_centerPointId)
+                             << "radius=" << m_radius;
     return true;
 }
 

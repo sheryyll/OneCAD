@@ -1,11 +1,13 @@
 #include "Grid3D.h"
 #include <QtMath>
-#include <QDebug>
+#include <QLoggingCategory>
 #include <algorithm>
 #include <cmath>
 
 namespace onecad {
 namespace render {
+
+Q_LOGGING_CATEGORY(logGrid3D, "onecad.render.grid")
 
 // Use GLSL 410 core for macOS compatibility (Metal backend)
 static const char* vertexShaderSource = R"(
@@ -14,21 +16,23 @@ layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec4 aColor;
 
 uniform mat4 uMVP;
+uniform mat4 uModel;
 
 out vec4 vColor;
-out vec3 vWorldPos;
+out vec3 vPlanePos;
 
 void main() {
-    gl_Position = uMVP * vec4(aPos, 1.0);
+    vec4 worldPos = uModel * vec4(aPos, 1.0);
+    gl_Position = uMVP * worldPos;
     vColor = aColor;
-    vWorldPos = aPos;
+    vPlanePos = aPos;
 }
 )";
 
 static const char* fragmentShaderSource = R"(
 #version 410 core
 in vec4 vColor;
-in vec3 vWorldPos;
+in vec3 vPlanePos;
 out vec4 FragColor;
 
 uniform vec3 uFadeOrigin;
@@ -36,7 +40,7 @@ uniform float uFadeStart;
 uniform float uFadeEnd;
 
 void main() {
-    float dist = length(vWorldPos.xy - uFadeOrigin.xy);
+    float dist = length(vPlanePos.xy - uFadeOrigin.xy);
     float fade = 1.0 - smoothstep(uFadeStart, uFadeEnd, dist);
     FragColor = vec4(vColor.rgb, vColor.a * fade);
 }
@@ -61,30 +65,29 @@ void Grid3D::initialize() {
     m_shader = new QOpenGLShaderProgram();
     
     if (!m_shader->addShaderFromSourceCode(QOpenGLShader::Vertex, vertexShaderSource)) {
-        qWarning() << "Grid3D: Vertex shader compile error:" << m_shader->log();
+        qCWarning(logGrid3D) << "initialize:vertex-shader-compile-error" << m_shader->log();
         return;
     }
     
     if (!m_shader->addShaderFromSourceCode(QOpenGLShader::Fragment, fragmentShaderSource)) {
-        qWarning() << "Grid3D: Fragment shader compile error:" << m_shader->log();
+        qCWarning(logGrid3D) << "initialize:fragment-shader-compile-error" << m_shader->log();
         return;
     }
     
     if (!m_shader->link()) {
-        qWarning() << "Grid3D: Shader link error:" << m_shader->log();
+        qCWarning(logGrid3D) << "initialize:shader-link-error" << m_shader->log();
         return;
     }
-    
-    qDebug() << "Grid3D: Shaders compiled and linked successfully";
+    qCDebug(logGrid3D) << "initialize:shader-ready";
     
     // Create buffers
     if (!m_vao.create()) {
-        qWarning() << "Grid3D: Failed to create VAO";
+        qCWarning(logGrid3D) << "initialize:failed-create-vao";
         return;
     }
     
     if (!m_vertexBuffer.create()) {
-        qWarning() << "Grid3D: Failed to create vertex buffer";
+        qCWarning(logGrid3D) << "initialize:failed-create-vertex-buffer";
         return;
     }
     
@@ -95,7 +98,7 @@ void Grid3D::initialize() {
     // Build initial grid
     buildGrid(10.0f, 50.0f, -500.0f, 500.0f, -500.0f, 500.0f);
     
-    qDebug() << "Grid3D: Initialized successfully with" << m_lineCount << "vertices";
+    qCInfo(logGrid3D) << "initialize:done" << "lineVertices=" << m_lineCount;
 }
 
 void Grid3D::cleanup() {
@@ -243,7 +246,7 @@ void Grid3D::buildGrid(float minorSpacing,
     m_lastEnd = QVector2D(endX, endY);
     
     if (m_vertices.empty()) {
-        qWarning() << "Grid3D: No vertices generated!";
+        qCWarning(logGrid3D) << "buildGrid:no-vertices";
         return;
     }
     
@@ -287,7 +290,8 @@ void Grid3D::render(const QMatrix4x4& viewProjection,
                     float pixelScale,
                     const QVector2D& viewMin,
                     const QVector2D& viewMax,
-                    const QVector2D& fadeOrigin) {
+                    const QVector2D& fadeOrigin,
+                    const QMatrix4x4& modelMatrix) {
     if (!m_visible || !m_initialized || m_lineCount == 0) return;
 
     const float minorSpacing = calculateSpacing(pixelScale);
@@ -344,6 +348,7 @@ void Grid3D::render(const QMatrix4x4& viewProjection,
     
     m_shader->bind();
     m_shader->setUniformValue("uMVP", viewProjection);
+    m_shader->setUniformValue("uModel", modelMatrix);
     m_shader->setUniformValue("uFadeOrigin", QVector3D(fadeOrigin.x(), fadeOrigin.y(), 0.0f));
 
     float gridHalfSpan = 0.5f * qMax(endX - startX, endY - startY);
