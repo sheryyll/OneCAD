@@ -841,6 +841,29 @@ void Viewport::mousePressEvent(QMouseEvent* event) {
         modifiers.toggle = event->modifiers() & (Qt::MetaModifier | Qt::ControlModifier);
 
         auto pickResult = buildSketchPickResult(event->pos());
+
+        std::optional<app::selection::SelectionItem> bestPointForDrag;
+        for (const auto& hit : pickResult.hits) {
+            if (hit.kind == app::selection::SelectionKind::SketchPoint) {
+                if (!bestPointForDrag.has_value() ||
+                    hit.screenDistance < bestPointForDrag->screenDistance) {
+                    bestPointForDrag = hit;
+                }
+            }
+        }
+
+        // Point drag must win over deep-select ambiguity at line endpoints.
+        if (!m_moveSketchModeActive && bestPointForDrag.has_value()) {
+            m_selectionManager->applySelectionCandidate(*bestPointForDrag, modifiers, event->pos());
+            m_sketchInteractionState = SketchInteractionState::PendingPointDrag;
+            m_sketchPressPos = event->pos();
+            m_pointDragCandidateId = bestPointForDrag->id.elementId;
+            m_pointDragFailureFeedbackShown = false;
+            m_selectedRegionId.clear();
+            update();
+            return;
+        }
+
         auto action = m_selectionManager->handleClick(pickResult, modifiers, event->pos());
 
         if (action.needsDeepSelect) {
@@ -862,55 +885,36 @@ void Viewport::mousePressEvent(QMouseEvent* event) {
         // Candidate for point drag, region move, or sketch move
         if (!m_moveSketchModeActive) {
             auto top = m_selectionManager->topCandidate(pickResult);
-            std::optional<app::selection::SelectionItem> bestPointForDrag;
-            for (const auto& hit : pickResult.hits) {
-                if (hit.kind == app::selection::SelectionKind::SketchPoint) {
-                    if (!bestPointForDrag.has_value() ||
-                        hit.screenDistance < bestPointForDrag->screenDistance) {
-                        bestPointForDrag = hit;
-                    }
+            bool hitInSelectedRegion = false;
+            bool hitSelectedRegionFill = false;
+            if (!m_selectedRegionId.empty() && top.has_value()) {
+                if (top->kind == app::selection::SelectionKind::SketchEdge) {
+                    std::vector<sketch::EntityID> regionEntityIds =
+                        core::loop::getEntityIdsInRegion(*m_activeSketch, m_selectedRegionId);
+                    hitInSelectedRegion =
+                        std::find(regionEntityIds.begin(), regionEntityIds.end(), top->id.elementId) !=
+                        regionEntityIds.end();
+                } else if (top->kind == app::selection::SelectionKind::SketchRegion &&
+                           top->id.elementId == m_selectedRegionId) {
+                    hitSelectedRegionFill = true;
                 }
             }
 
-            // Point drag takes priority over region move when clicking a corner/vertex.
-            if (bestPointForDrag.has_value()) {
-                m_sketchInteractionState = SketchInteractionState::PendingPointDrag;
+            if (!m_selectedRegionId.empty() &&
+                (!top.has_value() || hitInSelectedRegion || hitSelectedRegionFill)) {
+                m_sketchInteractionState = SketchInteractionState::PendingRegionMove;
                 m_sketchPressPos = event->pos();
-                m_pointDragCandidateId = bestPointForDrag->id.elementId;
-                m_pointDragFailureFeedbackShown = false;
+                m_regionMoveCandidateId = m_selectedRegionId;
+                m_pointDragCandidateId.clear();
+            } else if (!top.has_value()) {
+                m_sketchInteractionState = SketchInteractionState::PendingSketchMove;
+                m_sketchPressPos = event->pos();
+                m_pointDragCandidateId.clear();
                 m_selectedRegionId.clear();
             } else {
-                bool hitInSelectedRegion = false;
-                bool hitSelectedRegionFill = false;
-                if (!m_selectedRegionId.empty() && top.has_value()) {
-                    if (top->kind == app::selection::SelectionKind::SketchEdge) {
-                        std::vector<sketch::EntityID> regionEntityIds =
-                            core::loop::getEntityIdsInRegion(*m_activeSketch, m_selectedRegionId);
-                        hitInSelectedRegion =
-                            std::find(regionEntityIds.begin(), regionEntityIds.end(), top->id.elementId) !=
-                            regionEntityIds.end();
-                    } else if (top->kind == app::selection::SelectionKind::SketchRegion &&
-                               top->id.elementId == m_selectedRegionId) {
-                        hitSelectedRegionFill = true;
-                    }
-                }
-
-                if (!m_selectedRegionId.empty() &&
-                    (!top.has_value() || hitInSelectedRegion || hitSelectedRegionFill)) {
-                    m_sketchInteractionState = SketchInteractionState::PendingRegionMove;
-                    m_sketchPressPos = event->pos();
-                    m_regionMoveCandidateId = m_selectedRegionId;
-                    m_pointDragCandidateId.clear();
-                } else if (!top.has_value()) {
-                    m_sketchInteractionState = SketchInteractionState::PendingSketchMove;
-                    m_sketchPressPos = event->pos();
-                    m_pointDragCandidateId.clear();
-                    m_selectedRegionId.clear();
-                } else {
-                    m_sketchInteractionState = SketchInteractionState::Idle;
-                    m_pointDragCandidateId.clear();
-                    m_selectedRegionId.clear();
-                }
+                m_sketchInteractionState = SketchInteractionState::Idle;
+                m_pointDragCandidateId.clear();
+                m_selectedRegionId.clear();
             }
         } else {
             m_sketchInteractionState = SketchInteractionState::Idle;
