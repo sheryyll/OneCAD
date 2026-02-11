@@ -59,7 +59,15 @@ bool isDebugEnabledByEnvironment() {
 QStringList selectedReleaseDebugCategories() {
     QString configured = qEnvironmentVariable("ONECAD_LOG_DEBUG_CATEGORIES").trimmed();
     if (configured.isEmpty()) {
-        configured = QStringLiteral("onecad.main,onecad.app,onecad.io");
+        configured = QStringLiteral(
+            "onecad.main,"
+            "onecad.app.*,"
+            "onecad.io.*,"
+            "onecad.core.faceboundary,"
+            "onecad.ui.mainwindow,"
+            "onecad.ui.tools.extrude,"
+            "onecad.ui.tools.revolve,"
+            "onecad.ui.history.editparams");
     }
 
     QStringList categories;
@@ -78,6 +86,8 @@ void setLoggingRules(bool debugBuild) {
 
     QStringList rules;
     rules << QStringLiteral("*.info=true");
+    rules << QStringLiteral("*.warning=true");
+    rules << QStringLiteral("*.critical=true");
 
     if (gDebugLoggingEnabled) {
         rules << QStringLiteral("*.debug=true");
